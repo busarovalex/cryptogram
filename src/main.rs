@@ -26,9 +26,16 @@ fn main() {
 
         let result = match find_words(&words, patterns) {
             Ok(matches) => matches,
-            Err(error_message) => error_message
+            Err(error_message) => {
+                println!("{}", &error_message);
+                ::std::process::exit(1);
+            }
         };
-        println!("{}", &result);
+
+        for combination in result {
+            println!("{}", combination);
+        }
+        
         return;
     }
 
@@ -53,12 +60,20 @@ fn main() {
                 println!("<{}>: {}", &message.from.first_name, data);
 
                 // Answer message with "Hi".
-                api.spawn(message.text_reply(
-                    match find_by_query(&words, data) {
-                        Ok(matches) => matches,
-                        Err(error_message) => error_message
-                    }
-                ));
+                match find_by_query(&words, data) {
+                    Ok(matches) => {
+                        let mut chunk = String::new();
+                        for single_match in matches {
+                            if (chunk.len() + single_match.len()) > 4000 {
+                                api.spawn(message.text_reply(::std::mem::replace(&mut chunk, String::new())));
+                            }
+                            chunk.push_str(&single_match);
+                        }
+                        api.spawn(message.text_reply(chunk));
+                    },
+                    Err(error_message) => api.spawn(message.text_reply(error_message))
+                }
+                
             }
         }
 
@@ -68,14 +83,14 @@ fn main() {
     core.run(future).unwrap();
 }
 
-fn find_by_query(vocabulary: &[&str], query: &str) -> Result<String, String> {
+fn find_by_query(vocabulary: &[&str], query: &str) -> Result<Vec<String>, String> {
     let patterns: Vec<String> = query.split_whitespace()
         .map(String::from)
         .collect();
     find_words(vocabulary, patterns)
 }
 
-fn find_words(vocabulary: &[&str], patterns: Vec<String>) -> Result<String, String> {
+fn find_words(vocabulary: &[&str], patterns: Vec<String>) -> Result<Vec<String>, String> {
     let mut groups: HashMap<WildcardsValues, HashMap<String, Vec<String>>> = HashMap::new();
 
     for word in vocabulary {
@@ -118,17 +133,19 @@ fn find_words(vocabulary: &[&str], patterns: Vec<String>) -> Result<String, Stri
         !pattern_map.values().any(Vec::is_empty)
     );
 
-    let mut result = String::new();
+    let mut result = Vec::new();
 
     for (_, pattern_map) in combined_results {
+        let mut wildcard_combination_result = String::new();
         for matches in pattern_map.values() {
             for word in matches {
-                result.push_str(word);
-                result.push(' ');
+                wildcard_combination_result.push_str(word);
+                wildcard_combination_result.push(' ');
             }
-            result.push('\n');
+            wildcard_combination_result.push('\n');
         }
-        result.push_str("=================\n");
+        wildcard_combination_result.push_str("=================\n");
+        result.push(wildcard_combination_result);
     }
 
     Ok(result)
