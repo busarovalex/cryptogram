@@ -1,0 +1,6 @@
+[package]
+name = "word-search"
+version = "0.1.0"
+authors = ["Alex <busarovalex@yandex.ru>"]
+
+[dependencies]
