@@ -1,30 +1,69 @@
-use std::fs::File;
-use std::io::prelude::*;
+extern crate futures;
+extern crate telegram_bot;
+extern crate tokio_core;
+
+use futures::Stream;
+use tokio_core::reactor::Core;
+use telegram_bot::*;
+
 use std::collections::HashMap;
+use std::env;
 
 fn main() {
-    let mut file = File::open(::std::env::args().skip(1).next().unwrap()).unwrap();
-    let mut contents = String::new();
-    file.read_to_string(&mut contents).unwrap();
+    let mut core = Core::new().unwrap();
 
-    let patterns: Vec<String> = ::std::env::args()
-        .skip(2)
+    let token = env::var("TELEGRAM_BOT_TOKEN").unwrap();
+    let api = Api::configure(token).build(core.handle()).unwrap();
+
+    let vocabulary = include_str!("../10kwords.txt");
+    let words: Vec<_> = vocabulary.lines()
+        .collect();
+
+
+    // Fetch new updates via long poll method
+    let future = api.stream().for_each(|update| {
+
+        // If the received update contains a new message...
+        if let UpdateKind::Message(message) = update.kind {
+
+            if let MessageKind::Text {ref data, ..} = message.kind {
+                // Print received text message to stdout.
+                println!("<{}>: {}", &message.from.first_name, data);
+
+                // Answer message with "Hi".
+                api.spawn(message.text_reply(
+                    match find_words(&words, data) {
+                        Ok(matches) => matches,
+                        Err(error_message) => error_message
+                    }
+                ));
+            }
+        }
+
+        Ok(())
+    });
+
+    core.run(future).unwrap();
+}
+
+fn find_words(vocabulary: &[&str], query: &str) -> Result<String, String> {
+    let patterns: Vec<String> = query.split_whitespace()
         .map(String::from)
         .collect();
 
     let mut groups: HashMap<WildcardsValues, HashMap<String, Vec<String>>> = HashMap::new();
 
-    for word in contents.lines() {
+    for word in vocabulary {
         for pattern in &patterns {
-            if let Some(wildcards_values) = test(word, pattern) {
+            if let Some(wildcards_values) = test(word, pattern)? {
                 if groups.contains_key(&wildcards_values) {
                     groups.get_mut(&wildcards_values).unwrap()
                         .get_mut(pattern).unwrap()
-                        .push(word.into());
+                        .push(word.to_string());
                 } else {
                     let pattern_map = patterns.iter()
                         .map(|p| if p == pattern 
-                                    {(p.clone(), vec![word.into()])} 
+                                    {(p.clone(), vec![word.to_string()])} 
                                     else 
                                     {(p.clone(), Vec::with_capacity(0))})
                         .collect();
@@ -33,8 +72,6 @@ fn main() {
             }
         }
     }
-
-    println!("{:?}", groups.len());
 
     let mut combined_results: Vec<(WildcardsValues, HashMap<String, Vec<String>>)> = Vec::new();
 
@@ -56,42 +93,45 @@ fn main() {
         !pattern_map.values().any(Vec::is_empty)
     );
 
-    println!("{:?}", combined_results.len());
+    let mut result = String::new();
 
     for (_, pattern_map) in combined_results {
         for matches in pattern_map.values() {
             for word in matches {
-                print!("{} ", word);
+                result.push_str(word);
+                result.push(' ');
             }
-            println!("");    
+            result.push('\n');
         }
-        println!("=================");
+        result.push_str("=================\n");
     }
+
+    Ok(result)
 }
 
-fn test(word: &str, pattern: &str) -> Option<WildcardsValues> {
+fn test(word: &str, pattern: &str) -> Result<Option<WildcardsValues>, String> {
     if word.len() != pattern.len() {
-        return None;
+        return Ok(None);
     }
     let mut wildcards_values = WildcardsValues::new();
     for (word_char, pattern_char) in word.chars().zip(pattern.chars()) {
         match pattern_char {
-            '*' => {
+            '*' | '+' | '_' => {
                 if wildcards_values.contains_word_char(word_char) {
-                    return None;
+                    return Ok(None);
                 }
             },
             patter_char_value @ 'a' ... 'z' => {
                 match wildcards_values.test_word_char(word_char, patter_char_value) {
                     WildcardValueResult::NotPresent => wildcards_values.add(word_char, patter_char_value),
-                    WildcardValueResult::NotEqual => return None,
+                    WildcardValueResult::NotEqual => return Ok(None),
                     WildcardValueResult::Equal => {}
                 }
             }
-            unexpected @ _ => panic!("unexpected pattern char: {}", unexpected)
+            unexpected @ _ => return Err(format!("unexpected pattern char: {}", unexpected))
         }
     }
-    Some(wildcards_values)
+    Ok(Some(wildcards_values))
 }
 
 #[derive(Debug, Eq, PartialEq, Hash)]
