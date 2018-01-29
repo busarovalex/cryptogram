@@ -99,7 +99,7 @@ fn find_by_query(vocabulary: &[&str], query: &str) -> Result<Vec<String>, String
 }
 
 fn find_words(vocabulary: &[&str], patterns: Vec<String>) -> Result<Vec<String>, String> {
-    let mut groups: HashMap<WildcardsValues, HashMap<String, Vec<String>>> = HashMap::new();
+    let mut groups: HashMap<WildcardsValues, HashMap<String, HashSet<String>>> = HashMap::new();
 
     let known_chars_map: HashMap<String, HashSet<char>> = patterns.iter()
         .map(|pattern| (
@@ -115,13 +115,13 @@ fn find_words(vocabulary: &[&str], patterns: Vec<String>) -> Result<Vec<String>,
                 if groups.contains_key(&wildcards_values) {
                     groups.get_mut(&wildcards_values).unwrap()
                         .get_mut(pattern).unwrap()
-                        .push(word.to_string());
+                        .insert(word.to_string());
                 } else {
                     let pattern_map = patterns.iter()
                         .map(|p| if p == pattern 
-                                    {(p.clone(), vec![word.to_string()])} 
+                                    {(p.clone(), hashset(word.to_string()))} 
                                     else 
-                                    {(p.clone(), Vec::with_capacity(0))})
+                                    {(p.clone(), HashSet::with_capacity(0))})
                         .collect();
                     groups.insert(wildcards_values, pattern_map);
                 }
@@ -134,31 +134,34 @@ fn find_words(vocabulary: &[&str], patterns: Vec<String>) -> Result<Vec<String>,
     Ok(gather_result(combined_results))
 }
 
-fn conbine_results(groups: HashMap<WildcardsValues, HashMap<String, Vec<String>>>) -> Vec<(WildcardsValues, HashMap<String, Vec<String>>)> {
-    let mut combined_results: Vec<(WildcardsValues, HashMap<String, Vec<String>>)> = Vec::new();
+fn conbine_results(groups: HashMap<WildcardsValues, HashMap<String, HashSet<String>>>) -> Vec<(WildcardsValues, HashMap<String, HashSet<String>>)> {
+
+    let mut combined_results: Vec<(WildcardsValues, HashMap<String, HashSet<String>>)> = 
+        groups.clone().into_iter().collect();
 
     for (wildcards_values, pattern_map) in groups {
         for &mut (ref mut combined_wildcards_values, ref mut combined_pattern_map) in &mut combined_results {
             if combined_wildcards_values.does_not_contradict_with(&wildcards_values) {
                 *combined_wildcards_values = combined_wildcards_values.merge(&wildcards_values);
                 for (pattern, matched_values) in combined_pattern_map.iter_mut() {
-                    let mut cloned_matched_values = pattern_map.get(pattern).unwrap().clone();
-                    matched_values.append(&mut cloned_matched_values);
+                    let cloned_matched_values = pattern_map.get(pattern).unwrap().clone();
+                    for cloned_matched_value in cloned_matched_values {
+                        matched_values.insert(cloned_matched_value);
+                    }
                 }
             }
         }
-        combined_results.push((wildcards_values, pattern_map));
     }
 
     combined_results.retain(
         |&(_, ref pattern_map)| 
-        !pattern_map.values().any(Vec::is_empty)
+        !pattern_map.values().any(HashSet::is_empty)
     );
 
     combined_results
 }
 
-fn gather_result(combined_results: Vec<(WildcardsValues, HashMap<String, Vec<String>>)>) -> Vec<String> {
+fn gather_result(combined_results: Vec<(WildcardsValues, HashMap<String, HashSet<String>>)>) -> Vec<String> {
     let mut result = Vec::new();
 
     for (_, pattern_map) in combined_results {
@@ -213,7 +216,13 @@ fn test(word: &str, pattern: &str, known_chars: &HashSet<char>) -> Result<Option
     Ok(Some(wildcards_values))
 }
 
-#[derive(Debug, Eq, PartialEq, Hash)]
+fn hashset<T: Eq + ::std::hash::Hash>(val: T) -> HashSet<T> {
+    let mut set = HashSet::new();
+    set.insert(val);
+    set
+}
+
+#[derive(Debug, Eq, PartialEq, Hash, Clone)]
 struct WildcardsValues {
     values: Vec<(char, char)>
 }
@@ -238,14 +247,6 @@ impl WildcardsValues {
 
     fn test_word_char(&self, word_char: char, pattern_char_value: char) -> WildcardValueResult {
         for &(existing_word_char, existing_pattern_char_value) in self.values.iter() {
-            #[cfg(test)]
-            {
-                println!(
-                    "({}, {}) -- ({}, {})", 
-                    word_char, pattern_char_value, 
-                    existing_word_char, existing_pattern_char_value
-                );
-            }
             match (word_char == existing_word_char, pattern_char_value == existing_pattern_char_value) {
                 (true, true) => return WildcardValueResult::Equal,
                 (true, false) | (false, true) => return WildcardValueResult::NotEqual,
@@ -323,7 +324,13 @@ mod tests {
         set_of_known_values.insert('e');
 
         assert!(test("wellness", "+++1+e22", &set_of_known_values).unwrap().is_none());
-    }
 
-    //
+
+        let mut set_of_known_values = HashSet::new();
+        set_of_known_values.insert('a');
+        set_of_known_values.insert('n');
+        set_of_known_values.insert('y');
+        assert!(test("anyone", "any+n_", &set_of_known_values).unwrap().is_some());
+
+    }
 }
