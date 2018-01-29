@@ -129,6 +129,12 @@ fn find_words(vocabulary: &[&str], patterns: Vec<String>) -> Result<Vec<String>,
         }
     }
 
+    let combined_results = conbine_results(groups);
+
+    Ok(gather_result(combined_results))
+}
+
+fn conbine_results(groups: HashMap<WildcardsValues, HashMap<String, Vec<String>>>) -> Vec<(WildcardsValues, HashMap<String, Vec<String>>)> {
     let mut combined_results: Vec<(WildcardsValues, HashMap<String, Vec<String>>)> = Vec::new();
 
     for (wildcards_values, pattern_map) in groups {
@@ -149,6 +155,10 @@ fn find_words(vocabulary: &[&str], patterns: Vec<String>) -> Result<Vec<String>,
         !pattern_map.values().any(Vec::is_empty)
     );
 
+    combined_results
+}
+
+fn gather_result(combined_results: Vec<(WildcardsValues, HashMap<String, Vec<String>>)>) -> Vec<String> {
     let mut result = Vec::new();
 
     for (_, pattern_map) in combined_results {
@@ -164,7 +174,7 @@ fn find_words(vocabulary: &[&str], patterns: Vec<String>) -> Result<Vec<String>,
         result.push(wildcard_combination_result);
     }
 
-    Ok(result)
+    result
 }
 
 fn test(word: &str, pattern: &str, known_chars: &HashSet<char>) -> Result<Option<WildcardsValues>, String> {
@@ -236,12 +246,10 @@ impl WildcardsValues {
                     existing_word_char, existing_pattern_char_value
                 );
             }
-            if word_char == existing_word_char && pattern_char_value == existing_pattern_char_value {
-                return WildcardValueResult::Equal;
-            }
-            if (word_char == existing_word_char && pattern_char_value != existing_pattern_char_value) ||
-               (word_char != existing_word_char && pattern_char_value == existing_pattern_char_value) {
-                return WildcardValueResult::NotEqual;
+            match (word_char == existing_word_char, pattern_char_value == existing_pattern_char_value) {
+                (true, true) => return WildcardValueResult::Equal,
+                (true, false) | (false, true) => return WildcardValueResult::NotEqual,
+                _ => {}
             }
         }
         WildcardValueResult::NotPresent
@@ -269,20 +277,18 @@ impl WildcardsValues {
     }
 
     fn merge(&self, other: &WildcardsValues) -> WildcardsValues {
-        let mut new_values = self.values.clone();
+        let mut new_values: HashSet<_> = self.values.iter().cloned().collect();
 
         for &(word_char, pattern_char) in &self.values {
             for &(other_word_char, other_pattern_char) in &other.values {
                 if word_char != other_word_char || pattern_char != other_pattern_char {
-                    new_values.push((other_word_char, other_pattern_char));
+                    new_values.insert((other_word_char, other_pattern_char));
                 }
            }
         }
 
-        new_values.dedup_by(|&mut (a, b), &mut (c, d)| a == c && b == d);
-
         WildcardsValues {
-            values: new_values
+            values: new_values.into_iter().collect()
         }
     }
 }
