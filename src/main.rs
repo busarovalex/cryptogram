@@ -8,8 +8,30 @@ use telegram_bot::*;
 
 use std::collections::HashMap;
 use std::env;
+use std::fs::File;
+use std::io::prelude::*;
 
 fn main() {
+    if let Some(vocabulary_name) = ::std::env::args().skip(1).next() {
+        let mut file = File::open(vocabulary_name).unwrap();
+        let mut vocabulary = String::new();
+        file.read_to_string(&mut vocabulary).unwrap();
+
+        let words: Vec<_> = vocabulary.lines()
+            .collect();
+
+        let patterns: Vec<_> = ::std::env::args().skip(2)
+            .map(String::from)
+            .collect();
+
+        let result = match find_words(&words, patterns) {
+            Ok(matches) => matches,
+            Err(error_message) => error_message
+        };
+        println!("{}", &result);
+        return;
+    }
+
     let mut core = Core::new().unwrap();
 
     let token = env::var("TELEGRAM_BOT_TOKEN").unwrap();
@@ -32,7 +54,7 @@ fn main() {
 
                 // Answer message with "Hi".
                 api.spawn(message.text_reply(
-                    match find_words(&words, data) {
+                    match find_by_query(&words, data) {
                         Ok(matches) => matches,
                         Err(error_message) => error_message
                     }
@@ -46,11 +68,14 @@ fn main() {
     core.run(future).unwrap();
 }
 
-fn find_words(vocabulary: &[&str], query: &str) -> Result<String, String> {
+fn find_by_query(vocabulary: &[&str], query: &str) -> Result<String, String> {
     let patterns: Vec<String> = query.split_whitespace()
         .map(String::from)
         .collect();
+    find_words(vocabulary, patterns)
+}
 
+fn find_words(vocabulary: &[&str], patterns: Vec<String>) -> Result<String, String> {
     let mut groups: HashMap<WildcardsValues, HashMap<String, Vec<String>>> = HashMap::new();
 
     for word in vocabulary {
