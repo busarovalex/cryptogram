@@ -6,7 +6,7 @@ use futures::Stream;
 use tokio_core::reactor::Core;
 use telegram_bot::*;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
@@ -32,8 +32,12 @@ fn main() {
             }
         };
 
-        for combination in result {
-            println!("{}", combination);
+        if result.is_empty() {
+            println!("no results found!");
+        } else {
+            for combination in result {
+                println!("{}", combination);
+            }
         }
         
         return;
@@ -62,14 +66,18 @@ fn main() {
                 // Answer message with "Hi".
                 match find_by_query(&words, data) {
                     Ok(matches) => {
-                        let mut chunk = String::new();
-                        for single_match in matches {
-                            if (chunk.len() + single_match.len()) > 4000 {
-                                api.spawn(message.text_reply(::std::mem::replace(&mut chunk, String::new())));
+                        if matches.is_empty() {
+                            api.spawn(message.text_reply(format!("No results found!")));
+                        } else {
+                            let mut chunk = String::new();
+                            for single_match in matches {
+                                if (chunk.len() + single_match.len()) > 4000 {
+                                    api.spawn(message.text_reply(::std::mem::replace(&mut chunk, String::new())));
+                                }
+                                chunk.push_str(&single_match);
                             }
-                            chunk.push_str(&single_match);
+                            api.spawn(message.text_reply(chunk));
                         }
-                        api.spawn(message.text_reply(chunk));
                     },
                     Err(error_message) => api.spawn(message.text_reply(error_message))
                 }
@@ -93,9 +101,17 @@ fn find_by_query(vocabulary: &[&str], query: &str) -> Result<Vec<String>, String
 fn find_words(vocabulary: &[&str], patterns: Vec<String>) -> Result<Vec<String>, String> {
     let mut groups: HashMap<WildcardsValues, HashMap<String, Vec<String>>> = HashMap::new();
 
+    let known_chars_map: HashMap<String, HashSet<char>> = patterns.iter()
+        .map(|pattern| (
+            pattern.to_string(),
+            pattern.chars().filter(|ch| match *ch {'a' ... 'z' => true, _ => false}).collect()
+        ))
+        .collect();
+
     for word in vocabulary {
         for pattern in &patterns {
-            if let Some(wildcards_values) = test(word, pattern)? {
+            let pattern_known_chars = known_chars_map.get(pattern).unwrap();
+            if let Some(wildcards_values) = test(word, pattern, pattern_known_chars)? {
                 if groups.contains_key(&wildcards_values) {
                     groups.get_mut(&wildcards_values).unwrap()
                         .get_mut(pattern).unwrap()
@@ -151,7 +167,7 @@ fn find_words(vocabulary: &[&str], patterns: Vec<String>) -> Result<Vec<String>,
     Ok(result)
 }
 
-fn test(word: &str, pattern: &str) -> Result<Option<WildcardsValues>, String> {
+fn test(word: &str, pattern: &str, known_chars: &HashSet<char>) -> Result<Option<WildcardsValues>, String> {
     if word.len() != pattern.len() {
         return Ok(None);
     }
@@ -162,8 +178,19 @@ fn test(word: &str, pattern: &str) -> Result<Option<WildcardsValues>, String> {
                 if wildcards_values.contains_word_char(word_char) {
                     return Ok(None);
                 }
+                if known_chars.contains(&word_char) {
+                    return Ok(None);
+                }
             },
-            patter_char_value @ 'a' ... 'z' => {
+            known_char_value @ 'a' ... 'z' => {
+                if word_char != known_char_value {
+                    return Ok(None)
+                }
+            },
+            patter_char_value @ '0' ... '9' => {
+                if known_chars.contains(&word_char) {
+                    return Ok(None);
+                }
                 match wildcards_values.test_word_char(word_char, patter_char_value) {
                     WildcardValueResult::NotPresent => wildcards_values.add(word_char, patter_char_value),
                     WildcardValueResult::NotEqual => return Ok(None),
@@ -266,20 +293,31 @@ mod tests {
 
     #[test]
     fn test_pattern_match() {
-        assert!(test("zwitter", "**aa***").is_none());
-        assert!(test("blooper", "**aa***").is_some());
-        assert!(test("aabbaaa", "**aa***").is_some());
-        assert!(test("aabba", "**aa***"  ).is_none());
+        let empty_map = HashSet::new();
+        assert!(test("zwitter", "**11***", &empty_map).unwrap().is_none());
+        assert!(test("blooper", "**11***", &empty_map).unwrap().is_some());
+        assert!(test("aabbaaa", "**11***", &empty_map).unwrap().is_some());
+        assert!(test("aabba",   "**11***", &empty_map).unwrap().is_none());
     }
 
     #[test]
     fn test_wildcards_values() {
         println!("");
         let mut wildcards_values = WildcardsValues::new();
-        assert_eq!(wildcards_values.test_word_char('a', 'b'), WildcardValueResult::NotPresent);
-        wildcards_values.add('a', 'b');
-        assert_eq!(wildcards_values.test_word_char('a', 'b'), WildcardValueResult::Equal);
-        assert_eq!(wildcards_values.test_word_char('a', 'a'), WildcardValueResult::NotEqual);
-        assert_eq!(wildcards_values.test_word_char('b', 'b'), WildcardValueResult::NotEqual);
+        assert_eq!(wildcards_values.test_word_char('a', '1'), WildcardValueResult::NotPresent);
+        wildcards_values.add('a', '1');
+        assert_eq!(wildcards_values.test_word_char('a', '1'), WildcardValueResult::Equal);
+        assert_eq!(wildcards_values.test_word_char('a', '2'), WildcardValueResult::NotEqual);
+        assert_eq!(wildcards_values.test_word_char('b', '1'), WildcardValueResult::NotEqual);
     }
+
+    #[test]
+    fn test_pattern_match_with_known_values() {
+        let mut set_of_known_values = HashSet::new();
+        set_of_known_values.insert('e');
+
+        assert!(test("wellness", "+++1+e22", &set_of_known_values).unwrap().is_none());
+    }
+
+    //
 }
