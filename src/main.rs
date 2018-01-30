@@ -217,9 +217,23 @@ fn test(word: &str, pattern: &str, known_chars: &HashSet<char>) -> Result<Option
 }
 
 fn hashset<T: Eq + ::std::hash::Hash>(val: T) -> HashSet<T> {
-    let mut set = HashSet::new();
+    let mut set = HashSet::with_capacity(1);
     set.insert(val);
     set
+}
+
+#[derive(Debug)]
+struct Pattern<'r> {
+    value: &'r str,
+    known_chars: HashSet<char>
+}
+
+#[derive(Debug)]
+struct Match<'a, 'b> {
+    pattern: &'a Pattern<'a>,
+    word: &'b str,
+    set_of_used_chars: HashSet<char>,
+    wildcards_values: WildcardsValues
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
@@ -232,6 +246,64 @@ enum WildcardValueResult {
     NotPresent,
     NotEqual,
     Equal
+}
+
+impl<'r> Pattern<'r> {
+    fn new(value: &'r str) -> Result<Pattern<'r>, String> {
+        if value.chars()
+            .any(|ch| match ch { '*' | '+' | '_' | '0' ... '9' | 'a' ... 'z' => false, _ => true }) {
+                return Err(format!("pattern {} has invalid characters", value));
+        }
+        Ok(Pattern {
+            value,
+            known_chars: value.chars()
+                              .filter(|ch| match *ch {'a' ... 'z' => true, _ => false})
+                              .collect()
+        })
+    }
+
+    fn match_word<'a>(&'r self, word: &'a str) -> Option<Match<'r, 'a>> {
+        if word.len() != self.value.len() {
+            return None;
+        }
+        let mut wildcards_values = WildcardsValues::new();
+        let mut set_of_used_chars = HashSet::new();
+        let known_chars = &self.known_chars;
+        for (word_char, pattern_char) in word.chars().zip(self.value.chars()) {
+            match pattern_char {
+                '*' | '+' | '_' => {
+                    if wildcards_values.contains_word_char(word_char) {
+                        return None;
+                    }
+                    if known_chars.contains(&word_char) {
+                        return None;
+                    }
+                },
+                known_char_value @ 'a' ... 'z' => {
+                    if word_char != known_char_value {
+                        return None;
+                    }
+                },
+                patter_char_value @ '0' ... '9' => {
+                    if known_chars.contains(&word_char) {
+                        return None;
+                    }
+                    match wildcards_values.test_word_char(word_char, patter_char_value) {
+                        WildcardValueResult::NotPresent => wildcards_values.add(word_char, patter_char_value),
+                        WildcardValueResult::NotEqual => return None,
+                        WildcardValueResult::Equal => {}
+                    }
+                },
+                unexpected @ _ => unreachable!("unexpected char: {}", unexpected)
+            }
+        }
+        Some(Match {
+            pattern: &self,
+            word,
+            set_of_used_chars,
+            wildcards_values
+        })
+    }
 }
 
 impl WildcardsValues {
@@ -300,16 +372,14 @@ mod tests {
 
     #[test]
     fn test_pattern_match() {
-        let empty_map = HashSet::new();
-        assert!(test("zwitter", "**11***", &empty_map).unwrap().is_none());
-        assert!(test("blooper", "**11***", &empty_map).unwrap().is_some());
-        assert!(test("aabbaaa", "**11***", &empty_map).unwrap().is_some());
-        assert!(test("aabba",   "**11***", &empty_map).unwrap().is_none());
+        assert!(pattern("**11***").match_word("zwitter").is_none());
+        assert!(pattern("**11***").match_word("blooper").is_some());
+        assert!(pattern("**11***").match_word("aabbaaa").is_some());
+        assert!(pattern("**11***").match_word("aabba")  .is_none());
     }
 
     #[test]
     fn test_wildcards_values() {
-        println!("");
         let mut wildcards_values = WildcardsValues::new();
         assert_eq!(wildcards_values.test_word_char('a', '1'), WildcardValueResult::NotPresent);
         wildcards_values.add('a', '1');
@@ -320,17 +390,17 @@ mod tests {
 
     #[test]
     fn test_pattern_match_with_known_values() {
-        let mut set_of_known_values = HashSet::new();
-        set_of_known_values.insert('e');
+        assert!(pattern("+++1+e22").match_word("wellness").is_none());
+        assert!(pattern("any+n_").match_word("anyone").is_some());
+    }
 
-        assert!(test("wellness", "+++1+e22", &set_of_known_values).unwrap().is_none());
+    #[test]
+    fn does_not_match_word_with_repeated_chars() {
+        let known_values = HashSet::new();
+        assert!(test("ee", "++", &known_values).unwrap().is_none());
+    }
 
-
-        let mut set_of_known_values = HashSet::new();
-        set_of_known_values.insert('a');
-        set_of_known_values.insert('n');
-        set_of_known_values.insert('y');
-        assert!(test("anyone", "any+n_", &set_of_known_values).unwrap().is_some());
-
+    fn pattern(value: &'static str) -> Pattern {
+        Pattern::new(value).unwrap()
     }
 }
