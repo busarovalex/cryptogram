@@ -99,7 +99,7 @@ fn find_by_query(vocabulary: &[&str], query: &str) -> Result<Vec<String>, String
 }
 
 fn find_words(vocabulary: &[&str], patterns: Vec<String>) -> Result<Vec<String>, String> {
-    let mut groups: HashMap<WildcardsValues, HashMap<String, HashSet<String>>> = HashMap::new();
+    let mut groups: HashMap<PlaceholderValues, HashMap<String, HashSet<String>>> = HashMap::new();
 
     let known_chars_map: HashMap<String, HashSet<char>> = patterns.iter()
         .map(|pattern| (
@@ -111,9 +111,9 @@ fn find_words(vocabulary: &[&str], patterns: Vec<String>) -> Result<Vec<String>,
     for word in vocabulary {
         for pattern in &patterns {
             let pattern_known_chars = known_chars_map.get(pattern).unwrap();
-            if let Some(wildcards_values) = test(word, pattern, pattern_known_chars)? {
-                if groups.contains_key(&wildcards_values) {
-                    groups.get_mut(&wildcards_values).unwrap()
+            if let Some(placeholder_values) = test(word, pattern, pattern_known_chars)? {
+                if groups.contains_key(&placeholder_values) {
+                    groups.get_mut(&placeholder_values).unwrap()
                         .get_mut(pattern).unwrap()
                         .insert(word.to_string());
                 } else {
@@ -123,7 +123,7 @@ fn find_words(vocabulary: &[&str], patterns: Vec<String>) -> Result<Vec<String>,
                                     else 
                                     {(p.clone(), HashSet::with_capacity(0))})
                         .collect();
-                    groups.insert(wildcards_values, pattern_map);
+                    groups.insert(placeholder_values, pattern_map);
                 }
             }
         }
@@ -134,15 +134,15 @@ fn find_words(vocabulary: &[&str], patterns: Vec<String>) -> Result<Vec<String>,
     Ok(gather_result(combined_results))
 }
 
-fn conbine_results(groups: HashMap<WildcardsValues, HashMap<String, HashSet<String>>>) -> Vec<(WildcardsValues, HashMap<String, HashSet<String>>)> {
+fn conbine_results(groups: HashMap<PlaceholderValues, HashMap<String, HashSet<String>>>) -> Vec<(PlaceholderValues, HashMap<String, HashSet<String>>)> {
 
-    let mut combined_results: Vec<(WildcardsValues, HashMap<String, HashSet<String>>)> = 
+    let mut combined_results: Vec<(PlaceholderValues, HashMap<String, HashSet<String>>)> = 
         groups.clone().into_iter().collect();
 
-    for (wildcards_values, pattern_map) in groups {
-        for &mut (ref mut combined_wildcards_values, ref mut combined_pattern_map) in &mut combined_results {
-            if combined_wildcards_values.does_not_contradict_with(&wildcards_values) {
-                *combined_wildcards_values = combined_wildcards_values.merge(&wildcards_values);
+    for (placeholder_values, pattern_map) in groups {
+        for &mut (ref mut combined_placeholder_values, ref mut combined_pattern_map) in &mut combined_results {
+            if combined_placeholder_values.does_not_contradict_with(&placeholder_values) {
+                *combined_placeholder_values = combined_placeholder_values.merge(&placeholder_values);
                 for (pattern, matched_values) in combined_pattern_map.iter_mut() {
                     let cloned_matched_values = pattern_map.get(pattern).unwrap().clone();
                     for cloned_matched_value in cloned_matched_values {
@@ -161,7 +161,7 @@ fn conbine_results(groups: HashMap<WildcardsValues, HashMap<String, HashSet<Stri
     combined_results
 }
 
-fn gather_result(combined_results: Vec<(WildcardsValues, HashMap<String, HashSet<String>>)>) -> Vec<String> {
+fn gather_result(combined_results: Vec<(PlaceholderValues, HashMap<String, HashSet<String>>)>) -> Vec<String> {
     let mut result = Vec::new();
 
     for (_, pattern_map) in combined_results {
@@ -180,15 +180,15 @@ fn gather_result(combined_results: Vec<(WildcardsValues, HashMap<String, HashSet
     result
 }
 
-fn test(word: &str, pattern: &str, known_chars: &HashSet<char>) -> Result<Option<WildcardsValues>, String> {
+fn test(word: &str, pattern: &str, known_chars: &HashSet<char>) -> Result<Option<PlaceholderValues>, String> {
     if word.len() != pattern.len() {
         return Ok(None);
     }
-    let mut wildcards_values = WildcardsValues::new();
+    let mut placeholder_values = PlaceholderValues::new();
     for (word_char, pattern_char) in word.chars().zip(pattern.chars()) {
         match pattern_char {
             '*' | '+' | '_' => {
-                if wildcards_values.contains_word_char(word_char) {
+                if placeholder_values.contains_word_char(word_char) {
                     return Ok(None);
                 }
                 if known_chars.contains(&word_char) {
@@ -204,8 +204,8 @@ fn test(word: &str, pattern: &str, known_chars: &HashSet<char>) -> Result<Option
                 if known_chars.contains(&word_char) {
                     return Ok(None);
                 }
-                match wildcards_values.test_word_char(word_char, patter_char_value) {
-                    WildcardValueResult::NotPresent => wildcards_values.add(word_char, patter_char_value),
+                match placeholder_values.test_word_char(word_char, patter_char_value) {
+                    WildcardValueResult::NotPresent => placeholder_values.add(word_char, patter_char_value),
                     WildcardValueResult::NotEqual => return Ok(None),
                     WildcardValueResult::Equal => {}
                 }
@@ -213,7 +213,7 @@ fn test(word: &str, pattern: &str, known_chars: &HashSet<char>) -> Result<Option
             unexpected @ _ => return Err(format!("unexpected pattern char: {}", unexpected))
         }
     }
-    Ok(Some(wildcards_values))
+    Ok(Some(placeholder_values))
 }
 
 fn hashset<T: Eq + ::std::hash::Hash>(val: T) -> HashSet<T> {
@@ -233,11 +233,11 @@ struct Match<'a, 'b> {
     pattern: &'a Pattern<'a>,
     word: &'b str,
     set_of_used_chars: HashSet<char>,
-    wildcards_values: WildcardsValues
+    placeholder_values: PlaceholderValues
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
-struct WildcardsValues {
+struct PlaceholderValues {
     values: Vec<(char, char)>
 }
 
@@ -266,13 +266,13 @@ impl<'r> Pattern<'r> {
         if word.len() != self.value.len() {
             return None;
         }
-        let mut wildcards_values = WildcardsValues::new();
+        let mut placeholder_values = PlaceholderValues::new();
         let mut set_of_used_chars = HashSet::new();
         let known_chars = &self.known_chars;
         for (word_char, pattern_char) in word.chars().zip(self.value.chars()) {
             match pattern_char {
                 '*' | '+' | '_' => {
-                    if wildcards_values.contains_word_char(word_char) {
+                    if placeholder_values.contains_word_char(word_char) {
                         return None;
                     }
                     if known_chars.contains(&word_char) {
@@ -288,8 +288,8 @@ impl<'r> Pattern<'r> {
                     if known_chars.contains(&word_char) {
                         return None;
                     }
-                    match wildcards_values.test_word_char(word_char, patter_char_value) {
-                        WildcardValueResult::NotPresent => wildcards_values.add(word_char, patter_char_value),
+                    match placeholder_values.test_word_char(word_char, patter_char_value) {
+                        WildcardValueResult::NotPresent => placeholder_values.add(word_char, patter_char_value),
                         WildcardValueResult::NotEqual => return None,
                         WildcardValueResult::Equal => {}
                     }
@@ -301,14 +301,14 @@ impl<'r> Pattern<'r> {
             pattern: &self,
             word,
             set_of_used_chars,
-            wildcards_values
+            placeholder_values
         })
     }
 }
 
-impl WildcardsValues {
-    fn new() -> WildcardsValues {
-        WildcardsValues {
+impl PlaceholderValues {
+    fn new() -> PlaceholderValues {
+        PlaceholderValues {
             values: Vec::with_capacity(0)
         }
     }
@@ -337,7 +337,7 @@ impl WildcardsValues {
         false
     }
 
-    fn does_not_contradict_with(&self, other: &WildcardsValues) -> bool {
+    fn does_not_contradict_with(&self, other: &PlaceholderValues) -> bool {
         for &(word_char, pattern_char) in &self.values {
             for &(other_word_char, other_pattern_char) in &other.values {
                 match (word_char == other_word_char, pattern_char == other_pattern_char) {
@@ -349,7 +349,7 @@ impl WildcardsValues {
         true
     }
 
-    fn merge(&self, other: &WildcardsValues) -> WildcardsValues {
+    fn merge(&self, other: &PlaceholderValues) -> PlaceholderValues {
         let mut new_values: HashSet<_> = self.values.iter().cloned().collect();
 
         for &(word_char, pattern_char) in &self.values {
@@ -360,7 +360,7 @@ impl WildcardsValues {
            }
         }
 
-        WildcardsValues {
+        PlaceholderValues {
             values: new_values.into_iter().collect()
         }
     }
@@ -379,13 +379,13 @@ mod tests {
     }
 
     #[test]
-    fn test_wildcards_values() {
-        let mut wildcards_values = WildcardsValues::new();
-        assert_eq!(wildcards_values.test_word_char('a', '1'), WildcardValueResult::NotPresent);
-        wildcards_values.add('a', '1');
-        assert_eq!(wildcards_values.test_word_char('a', '1'), WildcardValueResult::Equal);
-        assert_eq!(wildcards_values.test_word_char('a', '2'), WildcardValueResult::NotEqual);
-        assert_eq!(wildcards_values.test_word_char('b', '1'), WildcardValueResult::NotEqual);
+    fn test_placeholder_values() {
+        let mut placeholder_values = PlaceholderValues::new();
+        assert_eq!(placeholder_values.test_word_char('a', '1'), WildcardValueResult::NotPresent);
+        placeholder_values.add('a', '1');
+        assert_eq!(placeholder_values.test_word_char('a', '1'), WildcardValueResult::Equal);
+        assert_eq!(placeholder_values.test_word_char('a', '2'), WildcardValueResult::NotEqual);
+        assert_eq!(placeholder_values.test_word_char('b', '1'), WildcardValueResult::NotEqual);
     }
 
     #[test]
