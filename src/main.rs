@@ -232,7 +232,7 @@ struct Pattern<'r> {
 struct Match<'a, 'b> {
     pattern: &'a Pattern<'a>,
     word: &'b str,
-    set_of_used_chars: HashSet<char>,
+    wildcard_values: HashSet<char>,
     placeholder_values: PlaceholderValues
 }
 
@@ -267,7 +267,7 @@ impl<'r> Pattern<'r> {
             return None;
         }
         let mut placeholder_values = PlaceholderValues::new();
-        let mut set_of_used_chars = HashSet::new();
+        let mut wildcard_values = HashSet::new();
         let known_chars = &self.known_chars;
         for (word_char, pattern_char) in word.chars().zip(self.value.chars()) {
             match pattern_char {
@@ -277,6 +277,11 @@ impl<'r> Pattern<'r> {
                     }
                     if known_chars.contains(&word_char) {
                         return None;
+                    }
+                    if wildcard_values.contains(&word_char) {
+                        return None;
+                    } else {
+                        wildcard_values.insert(word_char);
                     }
                 },
                 known_char_value @ 'a' ... 'z' => {
@@ -300,7 +305,7 @@ impl<'r> Pattern<'r> {
         Some(Match {
             pattern: &self,
             word,
-            set_of_used_chars,
+            wildcard_values,
             placeholder_values
         })
     }
@@ -374,7 +379,7 @@ mod tests {
     fn test_pattern_match() {
         assert!(pattern("**11***").match_word("zwitter").is_none());
         assert!(pattern("**11***").match_word("blooper").is_some());
-        assert!(pattern("**11***").match_word("aabbaaa").is_some());
+        assert!(pattern("**11***").match_word("abccdef").is_some());
         assert!(pattern("**11***").match_word("aabba")  .is_none());
     }
 
@@ -396,8 +401,8 @@ mod tests {
 
     #[test]
     fn does_not_match_word_with_repeated_chars() {
-        let known_values = HashSet::new();
-        assert!(test("ee", "++", &known_values).unwrap().is_none());
+        assert!(pattern("++").match_word("ee").is_none());
+        assert!(pattern("1+").match_word("ee").is_none());
     }
 
     fn pattern(value: &'static str) -> Pattern {
