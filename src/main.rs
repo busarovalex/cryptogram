@@ -6,7 +6,7 @@ use futures::Stream;
 use tokio_core::reactor::Core;
 use telegram_bot::*;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashSet};
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
@@ -98,128 +98,68 @@ fn find_by_query(vocabulary: &[&str], query: &str) -> Result<Vec<String>, String
     find_words(vocabulary, patterns)
 }
 
-fn find_words(vocabulary: &[&str], patterns: Vec<String>) -> Result<Vec<String>, String> {
-    let mut groups: HashMap<PlaceholderValues, HashMap<String, HashSet<String>>> = HashMap::new();
+fn find_words(vocabulary: &[&str], patterns_str: Vec<String>) -> Result<Vec<String>, String> {
+    if patterns_str.is_empty() {
+        return Err(format!("No patters provided"));
+    }
 
-    let known_chars_map: HashMap<String, HashSet<char>> = patterns.iter()
-        .map(|pattern| (
-            pattern.to_string(),
-            pattern.chars().filter(|ch| match *ch {'a' ... 'z' => true, _ => false}).collect()
+    let mut patterns: Vec<Pattern> = Vec::new();
+    for pattern_str in &patterns_str {
+        patterns.push(Pattern::new(pattern_str)?);
+    }
+
+    let mut matches: Vec<(&str, Vec<Match>)> = Vec::new();
+
+    for pattern in &patterns {
+        matches.push((
+            pattern.value,
+            vocabulary.iter()
+                .flat_map(|word| pattern.match_word(word))
+                .collect()
         ))
-        .collect();
-
-    for word in vocabulary {
-        for pattern in &patterns {
-            let pattern_known_chars = known_chars_map.get(pattern).unwrap();
-            if let Some(placeholder_values) = test(word, pattern, pattern_known_chars)? {
-                if groups.contains_key(&placeholder_values) {
-                    groups.get_mut(&placeholder_values).unwrap()
-                        .get_mut(pattern).unwrap()
-                        .insert(word.to_string());
-                } else {
-                    let pattern_map = patterns.iter()
-                        .map(|p| if p == pattern 
-                                    {(p.clone(), hashset(word.to_string()))} 
-                                    else 
-                                    {(p.clone(), HashSet::with_capacity(0))})
-                        .collect();
-                    groups.insert(placeholder_values, pattern_map);
-                }
-            }
-        }
     }
 
-    let combined_results = conbine_results(groups);
+    let mut satisfactory_matches: Vec<CombinedMatches> = Vec::new();
 
-    Ok(gather_result(combined_results))
-}
+    let mut current_combined_match = CombinedMatches::empty();
 
-fn conbine_results(groups: HashMap<PlaceholderValues, HashMap<String, HashSet<String>>>) -> Vec<(PlaceholderValues, HashMap<String, HashSet<String>>)> {
+    let mut indexes = Indexes::with_lengths(matches.iter().map(|&(_, ref m)| m.len()).collect());
 
-    let mut combined_results: Vec<(PlaceholderValues, HashMap<String, HashSet<String>>)> = 
-        groups.clone().into_iter().collect();
-
-    for (placeholder_values, pattern_map) in groups {
-        for &mut (ref mut combined_placeholder_values, ref mut combined_pattern_map) in &mut combined_results {
-            if combined_placeholder_values.does_not_contradict_with(&placeholder_values) {
-                *combined_placeholder_values = combined_placeholder_values.merge(&placeholder_values);
-                for (pattern, matched_values) in combined_pattern_map.iter_mut() {
-                    let cloned_matched_values = pattern_map.get(pattern).unwrap().clone();
-                    for cloned_matched_value in cloned_matched_values {
-                        matched_values.insert(cloned_matched_value);
-                    }
-                }
+    'outer: while let Some(ref matches_indexes) = indexes.next() {
+        // println!("{:?}", &matches_indexes);
+        for (pattern_index, match_index) in matches_indexes.iter().enumerate() {
+            //println!("{}: {}", pattern_index, &match_index);
+            let word_match = &matches[pattern_index].1[*match_index];
+            if current_combined_match.contradicts_with(&word_match) {
+                current_combined_match = CombinedMatches::empty();
+                continue 'outer;
+            } else {
+                current_combined_match.add(&word_match);
             }
         }
+        satisfactory_matches.push(::std::mem::replace(&mut current_combined_match, CombinedMatches::empty()));
     }
 
-    combined_results.retain(
-        |&(_, ref pattern_map)| 
-        !pattern_map.values().any(HashSet::is_empty)
-    );
-
-    combined_results
-}
-
-fn gather_result(combined_results: Vec<(PlaceholderValues, HashMap<String, HashSet<String>>)>) -> Vec<String> {
     let mut result = Vec::new();
 
-    for (_, pattern_map) in combined_results {
-        let mut wildcard_combination_result = String::new();
-        for matches in pattern_map.values() {
-            for word in matches {
-                wildcard_combination_result.push_str(word);
-                wildcard_combination_result.push(' ');
-            }
-            wildcard_combination_result.push('\n');
+    for combined_match in satisfactory_matches {
+        let mut match_set = String::new();
+        for word in combined_match.matches.iter().map(|m| m.word) {
+            match_set.push_str(&word);
+            match_set.push(' ');
         }
-        wildcard_combination_result.push_str("=================\n");
-        result.push(wildcard_combination_result);
+        result.push(match_set);
     }
 
-    result
+    Ok(result)
 }
 
-fn test(word: &str, pattern: &str, known_chars: &HashSet<char>) -> Result<Option<PlaceholderValues>, String> {
-    if word.len() != pattern.len() {
-        return Ok(None);
-    }
-    let mut placeholder_values = PlaceholderValues::new();
-    for (word_char, pattern_char) in word.chars().zip(pattern.chars()) {
-        match pattern_char {
-            '*' | '+' | '_' => {
-                if placeholder_values.contains_word_char(word_char) {
-                    return Ok(None);
-                }
-                if known_chars.contains(&word_char) {
-                    return Ok(None);
-                }
-            },
-            known_char_value @ 'a' ... 'z' => {
-                if word_char != known_char_value {
-                    return Ok(None)
-                }
-            },
-            patter_char_value @ '0' ... '9' => {
-                if known_chars.contains(&word_char) {
-                    return Ok(None);
-                }
-                match placeholder_values.test_word_char(word_char, patter_char_value) {
-                    WildcardValueResult::NotPresent => placeholder_values.add(word_char, patter_char_value),
-                    WildcardValueResult::NotEqual => return Ok(None),
-                    WildcardValueResult::Equal => {}
-                }
-            }
-            unexpected @ _ => return Err(format!("unexpected pattern char: {}", unexpected))
-        }
-    }
-    Ok(Some(placeholder_values))
-}
-
-fn hashset<T: Eq + ::std::hash::Hash>(val: T) -> HashSet<T> {
-    let mut set = HashSet::with_capacity(1);
-    set.insert(val);
-    set
+#[derive(Debug)]
+struct Indexes {
+    current_indexes: Vec<usize>,
+    lengths: Vec<usize>,
+    first: bool,
+    finished: bool
 }
 
 #[derive(Debug)]
@@ -236,6 +176,13 @@ struct Match<'a, 'b> {
     placeholder_values: PlaceholderValues
 }
 
+#[derive(Debug)]
+struct CombinedMatches<'a: 'r, 'b: 'r, 'r> {
+    matches: Vec<&'r Match<'a, 'b>>,
+    wildcard_values: HashSet<char>,
+    placeholder_values: PlaceholderValues   
+}
+
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
 struct PlaceholderValues {
     values: Vec<(char, char)>
@@ -246,6 +193,67 @@ enum WildcardValueResult {
     NotPresent,
     NotEqual,
     Equal
+}
+
+impl Indexes {
+    fn with_lengths(lengths: Vec<usize>) -> Indexes {
+        let current_indexes = vec![0; lengths.len()];
+        Indexes {
+            lengths,
+            current_indexes,
+            first: true,
+            finished: false
+        }
+    }
+
+    fn next(&mut self) -> Option<&[usize]> {
+        if self.finished {
+            return None;
+        }
+        if self.first {
+            self.first = false;
+            return Some(&self.current_indexes)
+        }
+        *self.current_indexes.last_mut().unwrap() += 1;
+        let mut incremented_index = self.current_indexes.len() - 1;
+        while self.current_indexes[incremented_index] == self.lengths[incremented_index] {
+            self.current_indexes[incremented_index] = 0;
+            if incremented_index == 0 {
+                self.finished = true;
+                break;
+            }
+            self.current_indexes[incremented_index - 1] += 1;
+            incremented_index -= 1
+        }
+        Some(&self.current_indexes)
+    }
+}
+
+impl<'a: 'r, 'b: 'r, 'r> CombinedMatches<'a, 'b, 'r> {
+    fn empty() -> CombinedMatches<'a, 'b, 'r> {
+        CombinedMatches {
+            matches: Vec::with_capacity(2),
+            wildcard_values: HashSet::new(),
+            placeholder_values: PlaceholderValues::new()
+        }
+    }
+
+    fn contradicts_with(&self, other: &Match) -> bool {
+        // println!("{:?} contradicts_with {:?}", &self, other);
+        if !self.wildcard_values.is_disjoint(&other.wildcard_values) {
+            // println!("      false");
+            return false;
+        }
+        self.placeholder_values.contradicts_with(&other.placeholder_values)
+    }
+
+    fn add(&mut self, other: &'r Match<'a, 'b>) {
+        self.matches.push(other);
+        for wildcard_value in &other.wildcard_values {
+            self.wildcard_values.insert(*wildcard_value);
+        }
+        self.placeholder_values = self.placeholder_values.merge(&other.placeholder_values);
+    }
 }
 
 impl<'r> Pattern<'r> {
@@ -342,19 +350,25 @@ impl PlaceholderValues {
         false
     }
 
-    fn does_not_contradict_with(&self, other: &PlaceholderValues) -> bool {
+    fn contradicts_with(&self, other: &PlaceholderValues) -> bool {
         for &(word_char, pattern_char) in &self.values {
             for &(other_word_char, other_pattern_char) in &other.values {
                 match (word_char == other_word_char, pattern_char == other_pattern_char) {
-                    (true, false) | (false, true) => return false,
+                    (true, false) | (false, true) => return true,
                     _ => {}
                 }
             }
         }
-        true
+        false
     }
 
     fn merge(&self, other: &PlaceholderValues) -> PlaceholderValues {
+        if self.values.is_empty() {
+            return PlaceholderValues {
+                values: other.values.clone()
+            }
+        }
+
         let mut new_values: HashSet<_> = self.values.iter().cloned().collect();
 
         for &(word_char, pattern_char) in &self.values {
