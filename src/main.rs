@@ -15,7 +15,7 @@ mod pattern;
 mod matches;
 
 use index::{PatternWordIndex};
-use pattern::{Pattern};
+use pattern::{Pattern, PatternSystem};
 use matches::{CombinedMatches};
 
 fn main() {
@@ -116,7 +116,11 @@ fn find_words(vocabulary: &[&str], patterns_str: Vec<String>) -> Result<Vec<Stri
         patterns.push(Pattern::new(pattern_str)?);
     }
 
-    let mut indexes = PatternWordIndex::new(patterns.len(), vocabulary.len());
+    let pattern_system = PatternSystem::new(patterns.iter().collect())?;
+
+    let orderd_patterns = pattern_system.ordered();
+
+    let mut indexes = PatternWordIndex::new(orderd_patterns.len(), vocabulary.len());
 
     let mut satisfactory_matches: Vec<CombinedMatches> = Vec::new();
 
@@ -126,7 +130,7 @@ fn find_words(vocabulary: &[&str], patterns_str: Vec<String>) -> Result<Vec<Stri
         for (pattern_index, word_index) in matches_indexes.iter().enumerate() {
 
             let word: &str = &vocabulary[*word_index];
-            let pattern = &patterns[pattern_index];
+            let pattern = &orderd_patterns[pattern_index];
             if let Some(word_match) = pattern.match_word(word) {
                 if current_combined_match.contradicts_with(&word_match) {
                     current_combined_match = CombinedMatches::empty();
@@ -148,7 +152,8 @@ fn find_words(vocabulary: &[&str], patterns_str: Vec<String>) -> Result<Vec<Stri
 
     for combined_match in satisfactory_matches {
         let mut match_set = String::new();
-        for word in combined_match.matches.iter().map(|m| m.word) {
+        for word in pattern_system.original_order(&combined_match.matches).iter().map(|m| m.word) {
+
             match_set.push_str(&word);
             match_set.push(' ');
         }
