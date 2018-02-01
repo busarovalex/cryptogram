@@ -3,10 +3,15 @@
 extern crate futures;
 extern crate telegram_bot;
 extern crate tokio_core;
+extern crate structopt;
+#[macro_use]
+extern crate structopt_derive;
+
 
 use futures::Stream;
 use tokio_core::reactor::Core;
 use telegram_bot::*;
+use structopt::StructOpt;
 
 use std::env;
 use std::fs::File;
@@ -15,28 +20,29 @@ use std::io::prelude::*;
 mod index;
 mod pattern;
 mod matches;
+mod app;
 
 use index::{PatternWordIndex};
 use pattern::{Pattern, PatternSystem};
 use matches::{CombinedMatches};
+use app::{App};
 
 const MAX_TOTAL_SATISFACTORY_MATCHES: usize = 200;
 const MAX_TOTAL_WORD_TESTS: usize = 10_000_000;
 
 fn main() {
-    if let Some(vocabulary_name) = ::std::env::args().skip(1).next() {
-        let mut file = File::open(vocabulary_name).unwrap();
-        let mut vocabulary = String::new();
-        file.read_to_string(&mut vocabulary).unwrap();
+    let app = App::from_args();
 
-        let words: Vec<_> = vocabulary.lines()
-            .collect();
+    let vocabulary_name = app.vocabulary;
+    let mut file = File::open(vocabulary_name).unwrap();
+    let mut vocabulary = String::new();
+    file.read_to_string(&mut vocabulary).unwrap();
 
-        let patterns: Vec<_> = ::std::env::args().skip(2)
-            .map(String::from)
-            .collect();
+    let words: Vec<_> = vocabulary.lines()
+        .collect();
 
-        let (matches, message) = match find_words(&words, patterns) {
+    if !app.patterns.is_empty() {
+        let (matches, message) = match find_words(&words, app.patterns) {
             Ok(result) => result,
             Err(error_message) => {
                 println!("{}", &error_message);
@@ -58,6 +64,7 @@ fn main() {
         
         return;
     }
+    
 
     let mut core = Core::new().unwrap();
 
