@@ -23,7 +23,7 @@ mod matches;
 mod app;
 
 use index::{PatternWordIndex};
-use pattern::{Pattern, PatternSystem};
+use pattern::{PatternSystem};
 use matches::{CombinedMatches};
 use app::{App};
 
@@ -131,10 +131,7 @@ fn find_words(vocabulary: &[&str], patterns_str: Vec<String>) -> Result<(Vec<Str
         return Err(format!("No patters provided"));
     }
 
-    let mut patterns: Vec<Pattern> = Vec::new();
-    for pattern_str in &patterns_str {
-        patterns.push(Pattern::new(pattern_str)?);
-    }
+    let patterns = pattern::parse(&patterns_str)?;
 
     let pattern_system = PatternSystem::new(patterns.iter().collect())?;
 

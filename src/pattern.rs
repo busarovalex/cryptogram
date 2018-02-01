@@ -17,7 +17,8 @@ const KNOWN_CHAR_REPEAT_MULTIPLIER: f32 = 5f32;
 #[derive(Debug, Eq, PartialEq)]
 pub struct Pattern<'r> {
     pub value: &'r str,
-    pub known_chars: HashSet<char>
+    pub known_chars: HashSet<char>,
+    digits_placeholders: bool
 }
 
 pub struct PatternSystem<'r> {
@@ -32,6 +33,25 @@ pub struct ExactnessScore(pub f32);
 pub struct ComplexityScore(pub f32);
 
 struct CharRepeat(HashMap<char, i32>);
+
+pub fn parse<'r>(raw_patterns: &'r [String]) -> Result<Vec<Pattern<'r>>, String> {
+    if raw_patterns.iter().any(|pattern| pattern.chars().any(|ch| match ch { '0' ... '9' => true, _ => false})) {
+
+        let mut patterns: Vec<Pattern> = Vec::new();
+        for pattern_str in raw_patterns {
+            patterns.push(Pattern::new(pattern_str)?);
+        }
+
+        return Ok(patterns);
+    }
+
+    let mut patterns: Vec<Pattern> = Vec::new();
+    for pattern_str in raw_patterns {
+        patterns.push(Pattern::no_digits(pattern_str)?);
+    }
+
+    Ok(patterns)
+}
 
 fn validate_pattern_system<'r>(_: &PatternSystem<'r>) -> Result<(), String> {
     Ok(())
@@ -92,16 +112,23 @@ impl<'r> PatternSystem<'r> {
 }
 
 impl<'r> Pattern<'r> {
+    pub fn no_digits(value: &'r str) -> Result<Pattern<'r>, String> {
+        Self::validate_str(value)?;
+        Ok(Pattern {
+            value,
+            known_chars: HashSet::with_capacity(0),
+            digits_placeholders: false
+        })
+    }
+
     pub fn new(value: &'r str) -> Result<Pattern<'r>, String> {
-        if value.chars()
-            .any(|ch| match ch { '*' | '+' | '_' | '0' ... '9' | 'a' ... 'z' => false, _ => true }) {
-                return Err(format!("pattern {} has invalid characters", value));
-        }
+        Self::validate_str(value)?;
         Ok(Pattern {
             value,
             known_chars: value.chars()
                               .filter(|ch| match *ch {'a' ... 'z' => true, _ => false})
-                              .collect()
+                              .collect(),
+            digits_placeholders: true
         })
     }
 
@@ -128,11 +155,29 @@ impl<'r> Pattern<'r> {
                     }
                 },
                 known_char_value @ 'a' ... 'z' => {
-                    if word_char != known_char_value {
-                        return None;
+                    if self.digits_placeholders {
+                        if word_char != known_char_value {
+                            return None;
+                        }
+                    } else {
+                        let placeholder_char_value = known_char_value;
+                        if known_chars.contains(&word_char) {
+                            return None;
+                        }
+                        if wildcard_values.contains(&word_char) {
+                            return None;
+                        }
+                        match placeholder_values.test_word_char(word_char, placeholder_char_value) {
+                            WildcardValueResult::NotPresent => placeholder_values.add(word_char, placeholder_char_value),
+                            WildcardValueResult::NotEqual => return None,
+                            WildcardValueResult::Equal => {}
+                        }
                     }
                 },
                 placeholder_char_value @ '0' ... '9' => {
+                    if !self.digits_placeholders {
+                        unreachable!();
+                    }
                     if known_chars.contains(&word_char) {
                         return None;
                     }
@@ -173,12 +218,31 @@ impl<'r> Pattern<'r> {
         for ch in self.value.chars() {
             match ch {
                 '*' | '_' | '+' => score += WILDCARD_COST * WILDCARD_WORD_LENGTH_MULTIPLIER * word_length,
-                'a' ... 'z' => score += KNOWN_CHAR_COST * KNOWN_CHAR_WORD_LENGTH_MULTIPLIER * word_length * repeat_mul(known_char_repeat.repeats(ch), KNOWN_CHAR_REPEAT_MULTIPLIER),
-                ch @ '0' ... '9' => score += PLACEHOLDER_COST * PLACEHOLDER_WORD_LENGTH_MULTIPLIER * word_length * repeat_mul(placeholder_repeat.repeats(ch),PLACEHOLDER_REPEAT_MULTIPLIER),
+                'a' ... 'z' => {
+                    if self.digits_placeholders {
+                        score += KNOWN_CHAR_COST * KNOWN_CHAR_WORD_LENGTH_MULTIPLIER * word_length * repeat_mul(known_char_repeat.repeats(ch), KNOWN_CHAR_REPEAT_MULTIPLIER);
+                    } else {
+                        score += PLACEHOLDER_COST * PLACEHOLDER_WORD_LENGTH_MULTIPLIER * word_length * repeat_mul(placeholder_repeat.repeats(ch),PLACEHOLDER_REPEAT_MULTIPLIER);
+                    }
+                },
+                ch @ '0' ... '9' => {
+                    if !self.digits_placeholders {
+                        unreachable!();
+                    }
+                    score += PLACEHOLDER_COST * PLACEHOLDER_WORD_LENGTH_MULTIPLIER * word_length * repeat_mul(placeholder_repeat.repeats(ch),PLACEHOLDER_REPEAT_MULTIPLIER);
+                },
                 _ => unreachable!()
             }
         }
         ExactnessScore(score)
+    }
+
+    fn validate_str(value: &str) -> Result<(), String> {
+        if value.chars()
+            .any(|ch| match ch { '*' | '+' | '_' | '0' ... '9' | 'a' ... 'z' => false, _ => true }) {
+                return Err(format!("pattern {} has invalid characters", value));
+        }
+        Ok(())
     }
 }
 
