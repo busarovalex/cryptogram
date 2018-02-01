@@ -11,6 +11,10 @@ use std::env;
 use std::fs::File;
 use std::io::prelude::*;
 
+mod index;
+
+use index::{PatternWordIndex};
+
 fn main() {
     if let Some(vocabulary_name) = ::std::env::args().skip(1).next() {
         let mut file = File::open(vocabulary_name).unwrap();
@@ -75,6 +79,7 @@ fn main() {
                                     api.spawn(message.text_reply(::std::mem::replace(&mut chunk, String::new())));
                                 }
                                 chunk.push_str(&single_match);
+                                chunk.push('\n');
                             }
                             api.spawn(message.text_reply(chunk));
                         }
@@ -108,33 +113,29 @@ fn find_words(vocabulary: &[&str], patterns_str: Vec<String>) -> Result<Vec<Stri
         patterns.push(Pattern::new(pattern_str)?);
     }
 
-    let mut matches: Vec<(&str, Vec<Match>)> = Vec::new();
-
-    for pattern in &patterns {
-        matches.push((
-            pattern.value,
-            vocabulary.iter()
-                .flat_map(|word| pattern.match_word(word))
-                .collect()
-        ))
-    }
+    let mut indexes = PatternWordIndex::new(patterns.len(), vocabulary.len());
 
     let mut satisfactory_matches: Vec<CombinedMatches> = Vec::new();
 
     let mut current_combined_match = CombinedMatches::empty();
 
-    let mut indexes = Indexes::with_lengths(matches.iter().map(|&(_, ref m)| m.len()).collect());
-
     'outer: while let Some(ref matches_indexes) = indexes.next() {
-        // println!("{:?}", &matches_indexes);
-        for (pattern_index, match_index) in matches_indexes.iter().enumerate() {
-            //println!("{}: {}", pattern_index, &match_index);
-            let word_match = &matches[pattern_index].1[*match_index];
-            if current_combined_match.contradicts_with(&word_match) {
-                current_combined_match = CombinedMatches::empty();
-                continue 'outer;
+        for (pattern_index, word_index) in matches_indexes.iter().enumerate() {
+
+            let word: &str = &vocabulary[*word_index];
+            let pattern = &patterns[pattern_index];
+            if let Some(word_match) = pattern.match_word(word) {
+                if current_combined_match.contradicts_with(&word_match) {
+                    current_combined_match = CombinedMatches::empty();
+                    indexes.increment_at(pattern_index);
+                    continue 'outer;
+                } else {
+                    current_combined_match.add(word_match);
+                }
             } else {
-                current_combined_match.add(&word_match);
+                current_combined_match = CombinedMatches::empty();
+                indexes.increment_at(pattern_index);
+                continue 'outer;
             }
         }
         satisfactory_matches.push(::std::mem::replace(&mut current_combined_match, CombinedMatches::empty()));
@@ -155,14 +156,6 @@ fn find_words(vocabulary: &[&str], patterns_str: Vec<String>) -> Result<Vec<Stri
 }
 
 #[derive(Debug)]
-struct Indexes {
-    current_indexes: Vec<usize>,
-    lengths: Vec<usize>,
-    first: bool,
-    finished: bool
-}
-
-#[derive(Debug)]
 struct Pattern<'r> {
     value: &'r str,
     known_chars: HashSet<char>
@@ -177,10 +170,10 @@ struct Match<'a, 'b> {
 }
 
 #[derive(Debug)]
-struct CombinedMatches<'a: 'r, 'b: 'r, 'r> {
-    matches: Vec<&'r Match<'a, 'b>>,
+struct CombinedMatches<'a, 'b> {
+    matches: Vec<Match<'a, 'b>>,
     wildcard_values: HashSet<char>,
-    placeholder_values: PlaceholderValues   
+    placeholder_values: PlaceholderValues
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
@@ -195,42 +188,8 @@ enum WildcardValueResult {
     Equal
 }
 
-impl Indexes {
-    fn with_lengths(lengths: Vec<usize>) -> Indexes {
-        let current_indexes = vec![0; lengths.len()];
-        Indexes {
-            lengths,
-            current_indexes,
-            first: true,
-            finished: false
-        }
-    }
-
-    fn next(&mut self) -> Option<&[usize]> {
-        if self.finished {
-            return None;
-        }
-        if self.first {
-            self.first = false;
-            return Some(&self.current_indexes)
-        }
-        *self.current_indexes.last_mut().unwrap() += 1;
-        let mut incremented_index = self.current_indexes.len() - 1;
-        while self.current_indexes[incremented_index] == self.lengths[incremented_index] {
-            self.current_indexes[incremented_index] = 0;
-            if incremented_index == 0 {
-                self.finished = true;
-                break;
-            }
-            self.current_indexes[incremented_index - 1] += 1;
-            incremented_index -= 1
-        }
-        Some(&self.current_indexes)
-    }
-}
-
-impl<'a: 'r, 'b: 'r, 'r> CombinedMatches<'a, 'b, 'r> {
-    fn empty() -> CombinedMatches<'a, 'b, 'r> {
+impl<'a, 'b> CombinedMatches<'a, 'b> {
+    fn empty() -> CombinedMatches<'a, 'b> {
         CombinedMatches {
             matches: Vec::with_capacity(2),
             wildcard_values: HashSet::new(),
@@ -242,17 +201,30 @@ impl<'a: 'r, 'b: 'r, 'r> CombinedMatches<'a, 'b, 'r> {
         // println!("{:?} contradicts_with {:?}", &self, other);
         if !self.wildcard_values.is_disjoint(&other.wildcard_values) {
             // println!("      false");
-            return false;
+            return true;
+        }
+        for word_match in &self.matches {
+            if !word_match.pattern.known_chars.is_disjoint(&other.wildcard_values) {
+                // println!("{:?}: {:?}", &word_match.pattern.known_chars, &other.wildcard_values);
+                return true;
+            }
+
+            for known_char in &word_match.pattern.known_chars {
+                if other.placeholder_values.contains_word_char(*known_char) {
+                    return true;
+                }
+            }
         }
         self.placeholder_values.contradicts_with(&other.placeholder_values)
+
     }
 
-    fn add(&mut self, other: &'r Match<'a, 'b>) {
-        self.matches.push(other);
+    fn add(&mut self, other: Match<'a, 'b>) {
         for wildcard_value in &other.wildcard_values {
             self.wildcard_values.insert(*wildcard_value);
         }
         self.placeholder_values = self.placeholder_values.merge(&other.placeholder_values);
+        self.matches.push(other);
     }
 }
 
@@ -417,6 +389,13 @@ mod tests {
     fn does_not_match_word_with_repeated_chars() {
         assert!(pattern("++").match_word("ee").is_none());
         assert!(pattern("1+").match_word("ee").is_none());
+    }
+
+    #[test]
+    fn test_disjoint() {
+        let mut set = HashSet::new();
+        set.insert('a');
+        assert!(!set.is_disjoint(&set));
     }
 
     fn pattern(value: &'static str) -> Pattern {
