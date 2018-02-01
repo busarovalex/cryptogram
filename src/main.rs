@@ -1,3 +1,5 @@
+#![feature(underscore_lifetimes)]
+
 extern crate futures;
 extern crate telegram_bot;
 extern crate tokio_core;
@@ -18,6 +20,9 @@ use index::{PatternWordIndex};
 use pattern::{Pattern, PatternSystem};
 use matches::{CombinedMatches};
 
+const MAX_TOTAL_SATISFACTORY_MATCHES: usize = 200;
+const MAX_TOTAL_WORD_TESTS: usize = 10_000_000;
+
 fn main() {
     if let Some(vocabulary_name) = ::std::env::args().skip(1).next() {
         let mut file = File::open(vocabulary_name).unwrap();
@@ -31,20 +36,24 @@ fn main() {
             .map(String::from)
             .collect();
 
-        let result = match find_words(&words, patterns) {
-            Ok(matches) => matches,
+        let (matches, message) = match find_words(&words, patterns) {
+            Ok(result) => result,
             Err(error_message) => {
                 println!("{}", &error_message);
                 ::std::process::exit(1);
             }
         };
 
-        if result.is_empty() {
+        if matches.is_empty() {
             println!("no results found!");
         } else {
-            for combination in result {
+            for combination in matches {
                 println!("{}", combination);
             }
+        }
+
+        if let Some(message) = message {
+            println!("{}", &message);
         }
         
         return;
@@ -72,7 +81,7 @@ fn main() {
 
                 // Answer message with "Hi".
                 match find_by_query(&words, data) {
-                    Ok(matches) => {
+                    Ok((matches, info_message)) => {
                         if matches.is_empty() {
                             api.spawn(message.text_reply(format!("No results found!")));
                         } else {
@@ -85,6 +94,10 @@ fn main() {
                                 chunk.push('\n');
                             }
                             api.spawn(message.text_reply(chunk));
+                        }
+
+                        if let Some(info_message) = info_message {
+                            api.spawn(message.text_reply(info_message));
                         }
                     },
                     Err(error_message) => api.spawn(message.text_reply(error_message))
@@ -99,14 +112,14 @@ fn main() {
     core.run(future).unwrap();
 }
 
-fn find_by_query(vocabulary: &[&str], query: &str) -> Result<Vec<String>, String> {
+fn find_by_query(vocabulary: &[&str], query: &str) -> Result<(Vec<String>, Option<String>), String> {
     let patterns: Vec<String> = query.split_whitespace()
         .map(String::from)
         .collect();
     find_words(vocabulary, patterns)
 }
 
-fn find_words(vocabulary: &[&str], patterns_str: Vec<String>) -> Result<Vec<String>, String> {
+fn find_words(vocabulary: &[&str], patterns_str: Vec<String>) -> Result<(Vec<String>, Option<String>), String> {
     if patterns_str.is_empty() {
         return Err(format!("No patters provided"));
     }
@@ -126,12 +139,22 @@ fn find_words(vocabulary: &[&str], patterns_str: Vec<String>) -> Result<Vec<Stri
 
     let mut current_combined_match = CombinedMatches::empty();
 
+    let mut total_satisfactory_matches = 0;
+    let mut total_word_tests = 0;
+
+    let mut too_many_matches_message = None;
+
     'outer: while let Some(ref matches_indexes) = indexes.next() {
         for (pattern_index, word_index) in matches_indexes.iter().enumerate() {
 
             let word: &str = &vocabulary[*word_index];
             let pattern = &orderd_patterns[pattern_index];
             if let Some(word_match) = pattern.match_word(word) {
+                total_word_tests += 1;
+                if total_word_tests > MAX_TOTAL_WORD_TESTS {
+                    too_many_matches_message = Some(too_many_word_tests(&pattern_system));
+                    break 'outer;
+                }
                 if current_combined_match.contradicts_with(&word_match) {
                     current_combined_match = CombinedMatches::empty();
                     indexes.increment_at(pattern_index);
@@ -145,7 +168,12 @@ fn find_words(vocabulary: &[&str], patterns_str: Vec<String>) -> Result<Vec<Stri
                 continue 'outer;
             }
         }
+        // println!("{:?}", current_combined_match);
         satisfactory_matches.push(::std::mem::replace(&mut current_combined_match, CombinedMatches::empty()));
+        total_satisfactory_matches += 1;
+        if total_satisfactory_matches > MAX_TOTAL_SATISFACTORY_MATCHES {
+            return Err(too_many_satisfactory_results(&pattern_system));
+        }
     }
 
     let mut result = Vec::new();
@@ -160,5 +188,34 @@ fn find_words(vocabulary: &[&str], patterns_str: Vec<String>) -> Result<Vec<Stri
         result.push(match_set);
     }
 
-    Ok(result)
+    Ok((result, too_many_matches_message))
+}
+
+fn too_many_satisfactory_results(pattern_system: &PatternSystem<'_>) -> String {
+    format!("Too many results. Probably, your patterns are not exact enough\n{}",
+        pattern_sys_complexity_report(pattern_system))
+}
+
+fn too_many_word_tests(pattern_system: &PatternSystem<'_>) -> String {
+    format!("Too many word tests. Probably, your patterns are not exact enough\n{}",
+        pattern_sys_complexity_report(pattern_system))
+}
+
+fn pattern_sys_complexity_report(pattern_system: &PatternSystem<'_>) -> String {
+    let mut sorted_patterns = String::new();
+
+    for pattern in pattern_system.ordered()
+        .iter()
+        .map(|p| p.value) {
+            sorted_patterns.push_str(pattern);
+            sorted_patterns.push(' ');
+    }
+
+    let mut pattern_exactnesses = String::new();
+
+    for pattern in pattern_system.patterns() {
+        pattern_exactnesses.push_str(&format!("{} -> {}\n", pattern.value, pattern.exactness_score().0));
+    }
+
+    format!("patterns were sorted based on their exactness: {}\npattern exactnesses:\n{}pattern system exactness: {}", sorted_patterns, pattern_exactnesses, pattern_system.complexity_score().0)
 }

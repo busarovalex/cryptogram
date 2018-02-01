@@ -10,9 +10,9 @@ const PLACEHOLDER_COST: f32 = 1f32;
 const PLACEHOLDER_WORD_LENGTH_MULTIPLIER : f32 = 0.25 * 2f32;
 const PLACEHOLDER_REPEAT_MULTIPLIER: f32 = 3f32;
 
-const KNOWN_CHAR_COST: f32 = 2f32;
-const KNOWN_CHAR_WORD_LENGTH_MULTIPLIER : f32 = 0.25 * 2f32;
-const KNOWN_CHAR_REPEAT_MULTIPLIER: f32 = 4f32;
+const KNOWN_CHAR_COST: f32 = 4f32;
+const KNOWN_CHAR_WORD_LENGTH_MULTIPLIER : f32 = 0.25 * 3f32;
+const KNOWN_CHAR_REPEAT_MULTIPLIER: f32 = 5f32;
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Pattern<'r> {
@@ -70,12 +70,16 @@ impl<'r> PatternSystem<'r> {
         &self.ordered_by_exactness
     }
 
+    pub fn patterns(&self) -> &[&'r Pattern<'r>] {
+        &self.patterns
+    }
+
     pub fn complexity_score(&self) -> ComplexityScore {
         let mut score = 0f32;
         for pattern in &self.patterns {
             score += pattern.exactness_score().0;
         }
-        ComplexityScore(100. / score)
+        ComplexityScore(score)
     }
 
     pub fn original_order<'k, 'a, 'b>(&self, exactness_order: &'k [Match<'a, 'b>]) -> Vec<&'k Match<'a, 'b>> {
@@ -128,12 +132,15 @@ impl<'r> Pattern<'r> {
                         return None;
                     }
                 },
-                patter_char_value @ '0' ... '9' => {
+                placeholder_char_value @ '0' ... '9' => {
                     if known_chars.contains(&word_char) {
                         return None;
                     }
-                    match placeholder_values.test_word_char(word_char, patter_char_value) {
-                        WildcardValueResult::NotPresent => placeholder_values.add(word_char, patter_char_value),
+                    if wildcard_values.contains(&word_char) {
+                        return None;
+                    }
+                    match placeholder_values.test_word_char(word_char, placeholder_char_value) {
+                        WildcardValueResult::NotPresent => placeholder_values.add(word_char, placeholder_char_value),
                         WildcardValueResult::NotEqual => return None,
                         WildcardValueResult::Equal => {}
                     }
@@ -193,9 +200,9 @@ impl CharRepeat {
 impl Ord for ExactnessScore {
     fn cmp(&self, other: &Self) -> Ordering {
         if self.0 > other.0 {
-            Ordering::Greater
-        } else {
             Ordering::Less
+        } else {
+            Ordering::Greater
         }
     }
 }
