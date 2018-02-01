@@ -141,7 +141,7 @@ fn find_words(vocabulary: &[&str], patterns_str: Vec<String>) -> Result<(Vec<Str
     let mut total_satisfactory_matches = 0;
     let mut total_word_tests = 0;
 
-    let mut too_many_matches_message = None;
+    let mut info_message = None;
 
     'outer: while let Some(ref matches_indexes) = indexes.next() {
         for (pattern_index, word_index) in matches_indexes.iter().enumerate() {
@@ -151,7 +151,7 @@ fn find_words(vocabulary: &[&str], patterns_str: Vec<String>) -> Result<(Vec<Str
             if let Some(word_match) = pattern.match_word(word) {
                 total_word_tests += 1;
                 if total_word_tests > MAX_TOTAL_WORD_TESTS {
-                    too_many_matches_message = Some(too_many_word_tests(&pattern_system));
+                    info_message = Some(too_many_word_tests(&pattern_system));
                     break 'outer;
                 }
                 if current_combined_match.contradicts_with(&word_match) {
@@ -171,7 +171,8 @@ fn find_words(vocabulary: &[&str], patterns_str: Vec<String>) -> Result<(Vec<Str
         satisfactory_matches.push(::std::mem::replace(&mut current_combined_match, CombinedMatches::empty()));
         total_satisfactory_matches += 1;
         if total_satisfactory_matches > MAX_TOTAL_SATISFACTORY_MATCHES {
-            return Err(too_many_satisfactory_results(&pattern_system));
+            info_message = Some(too_many_satisfactory_results(&pattern_system));
+            break 'outer;
         }
     }
 
@@ -187,7 +188,7 @@ fn find_words(vocabulary: &[&str], patterns_str: Vec<String>) -> Result<(Vec<Str
         result.push(match_set);
     }
 
-    Ok((result, too_many_matches_message))
+    Ok((result, info_message))
 }
 
 fn too_many_satisfactory_results(pattern_system: &PatternSystem<'_>) -> String {
