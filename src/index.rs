@@ -7,10 +7,10 @@ pub struct PatternWordIndex {
 }
 
 impl PatternWordIndex {
-    pub fn new(number_of_patterns: usize, vocabulary_length: usize) -> PatternWordIndex {
-        let current_indexes = vec![0; number_of_patterns];
+    pub fn new(lengths: Vec<usize>) -> PatternWordIndex {
+        let current_indexes = vec![0; lengths.len()];
         PatternWordIndex {
-            lengths: vec![vocabulary_length; number_of_patterns],
+            lengths,
             current_indexes,
             first: true,
             finished: false

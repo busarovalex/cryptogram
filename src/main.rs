@@ -21,11 +21,13 @@ mod index;
 mod pattern;
 mod matches;
 mod app;
+mod vocabulary;
 
 use index::{PatternWordIndex};
-use pattern::{PatternSystem};
+use pattern::{Pattern, PatternSystem};
 use matches::{CombinedMatches};
 use app::{App};
+use vocabulary::{Vocabulary};
 
 const MAX_TOTAL_SATISFACTORY_MATCHES: usize = 200;
 const MAX_TOTAL_WORD_TESTS: usize = 10_000_000;
@@ -41,8 +43,10 @@ fn main() {
     let words: Vec<_> = vocabulary.lines()
         .collect();
 
+    let vocabulary = Vocabulary::new(&words);
+
     if !app.patterns.is_empty() {
-        let (matches, message) = match find_words(&words, app.patterns) {
+        let (matches, message) = match find_words(&vocabulary, app.patterns) {
             Ok(result) => result,
             Err(error_message) => {
                 println!("{}", &error_message);
@@ -82,7 +86,7 @@ fn main() {
                 println!("<{}>: {}", &message.from.first_name, data);
 
                 // Answer message with "Hi".
-                match find_by_query(&words, data) {
+                match find_by_query(&vocabulary, data) {
                     Ok((matches, info_message)) => {
                         if matches.is_empty() {
                             api.spawn(message.text_reply(format!("No results found!")));
@@ -114,14 +118,14 @@ fn main() {
     core.run(future).unwrap();
 }
 
-fn find_by_query(vocabulary: &[&str], query: &str) -> Result<(Vec<String>, Option<String>), String> {
+fn find_by_query(vocabulary: &Vocabulary, query: &str) -> Result<(Vec<String>, Option<String>), String> {
     let patterns: Vec<String> = query.split_whitespace()
         .map(String::from)
         .collect();
     find_words(vocabulary, patterns)
 }
 
-fn find_words(vocabulary: &[&str], patterns_str: Vec<String>) -> Result<(Vec<String>, Option<String>), String> {
+fn find_words(vocabulary: &Vocabulary, patterns_str: Vec<String>) -> Result<(Vec<String>, Option<String>), String> {
     if patterns_str.is_empty() {
         return Err(format!("No patters provided"));
     }
@@ -132,7 +136,11 @@ fn find_words(vocabulary: &[&str], patterns_str: Vec<String>) -> Result<(Vec<Str
 
     let orderd_patterns = pattern_system.ordered();
 
-    let mut indexes = PatternWordIndex::new(orderd_patterns.len(), vocabulary.len());
+    let vocabularies = each_pattern_vocabularies(vocabulary, &orderd_patterns)?;
+
+    let each_pattern_vocabulary_len = vocabularies.iter().map(|v| v.len()).collect();
+
+    let mut indexes = PatternWordIndex::new(each_pattern_vocabulary_len);
 
     let mut satisfactory_matches: Vec<CombinedMatches> = Vec::new();
 
@@ -146,8 +154,10 @@ fn find_words(vocabulary: &[&str], patterns_str: Vec<String>) -> Result<(Vec<Str
     'outer: while let Some(ref matches_indexes) = indexes.next() {
         for (pattern_index, word_index) in matches_indexes.iter().enumerate() {
 
-            let word: &str = &vocabulary[*word_index];
+            let word: &str = &vocabularies[pattern_index][*word_index];
+
             let pattern = &orderd_patterns[pattern_index];
+
             if let Some(word_match) = pattern.match_word(word) {
                 total_word_tests += 1;
                 if total_word_tests > MAX_TOTAL_WORD_TESTS {
@@ -167,7 +177,7 @@ fn find_words(vocabulary: &[&str], patterns_str: Vec<String>) -> Result<(Vec<Str
                 continue 'outer;
             }
         }
-        // println!("{:?}", current_combined_match);
+
         satisfactory_matches.push(::std::mem::replace(&mut current_combined_match, CombinedMatches::empty()));
         total_satisfactory_matches += 1;
         if total_satisfactory_matches > MAX_TOTAL_SATISFACTORY_MATCHES {
@@ -189,6 +199,14 @@ fn find_words(vocabulary: &[&str], patterns_str: Vec<String>) -> Result<(Vec<Str
     }
 
     Ok((result, info_message))
+}
+
+fn each_pattern_vocabularies<'r>(vocabulary: &'r Vocabulary, patterns: &[&Pattern]) -> Result<Vec<&'r [&'r str]>, String> {
+    let mut vocabularies = Vec::new();
+    for pattern in patterns {
+        vocabularies.push(vocabulary.with_length(pattern.value.len())?);
+    }
+    Ok(vocabularies)
 }
 
 fn too_many_satisfactory_results(pattern_system: &PatternSystem<'_>) -> String {
