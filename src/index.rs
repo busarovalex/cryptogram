@@ -61,7 +61,7 @@ mod tests {
 
     #[test]
     fn correctly_next() {
-        let mut index = PatternWordIndex::new(2, 3);
+        let mut index = PatternWordIndex::new(vector(2, 3));
 
         assert_eq!(index.next(), Some(vec![0, 0]));
         assert_eq!(index.next(), Some(vec![0, 1]));
@@ -80,7 +80,7 @@ mod tests {
 
     #[test]
     fn correctly_increments() {
-        let mut index = PatternWordIndex::new(3, 3);
+        let mut index = PatternWordIndex::new(vector(3, 3));
 
         assert_eq!(index.next(), Some(vec![0, 0, 0]));
         assert_eq!(index.next(), Some(vec![0, 0, 1]));
@@ -95,7 +95,7 @@ mod tests {
 
     #[test]
     fn correctly_increments_2() {
-        let mut index = PatternWordIndex::new(3, 3);
+        let mut index = PatternWordIndex::new(vector(3, 3));
 
         assert_eq!(index.next(), Some(vec![0, 0, 0]));
         assert_eq!(index.next(), Some(vec![0, 0, 1]));
@@ -103,5 +103,9 @@ mod tests {
         index.increment_at(0);
 
         assert_eq!(index.next(), Some(vec![1, 0, 0]));
+    }
+
+    fn vector(length: usize, depth: usize) -> Vec<usize> {
+        vec![depth; length]
     }
 }

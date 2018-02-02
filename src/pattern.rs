@@ -280,3 +280,16 @@ impl PartialOrd for ExactnessScore {
 impl Eq for ExactnessScore {
 
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+ 
+    #[test]
+    fn correctly_matches() {
+        let pattern = Pattern::new("++1").unwrap();
+        assert!(pattern.match_word("abc").is_some());
+        pattern.match_word("abc").unwrap();
+    }
+
+}

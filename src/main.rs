@@ -164,6 +164,13 @@ fn find_words(vocabulary: &Vocabulary, patterns_str: Vec<String>) -> Result<(Vec
                     info_message = Some(too_many_word_tests(&pattern_system));
                     break 'outer;
                 }
+                for pattern in orderd_patterns {
+                    if word_match.contradicts_pattern(&pattern) {
+                        current_combined_match = CombinedMatches::empty();
+                        indexes.increment_at(pattern_index);
+                        continue 'outer;
+                    }
+                }
                 if current_combined_match.contradicts_with(&word_match) {
                     current_combined_match = CombinedMatches::empty();
                     indexes.increment_at(pattern_index);

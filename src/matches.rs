@@ -39,14 +39,11 @@ impl<'a, 'b> CombinedMatches<'a, 'b> {
     }
 
     pub fn contradicts_with(&self, other: &Match) -> bool {
-        // println!("{:?} contradicts_with {:?}", &self, other);
         if !self.wildcard_values.is_disjoint(&other.wildcard_values) {
-            // println!("      false");
             return true;
         }
         for word_match in &self.matches {
             if !word_match.pattern.known_chars.is_disjoint(&other.wildcard_values) {
-                // println!("{:?}: {:?}", &word_match.pattern.known_chars, &other.wildcard_values);
                 return true;
             }
 
@@ -136,6 +133,21 @@ impl PlaceholderValues {
 }
 
 
+impl<'a, 'b> Match<'a, 'b> {
+    pub fn contradicts_pattern(&self, pattern: &Pattern) -> bool {
+        for ch in pattern.known_chars.iter() {
+            if self.wildcard_values.contains(&ch) {
+                return true;
+            }
+            if self.placeholder_values.contains_word_char(*ch) {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,6 +188,16 @@ mod tests {
         let mut set = HashSet::new();
         set.insert('a');
         assert!(!set.is_disjoint(&set));
+    }
+
+    #[test]
+    fn contradicts_with_pattern() {
+        let initial_pattern = pattern("++1");
+        let word_match = initial_pattern.match_word("abс").unwrap();
+
+        assert!(word_match.contradicts_pattern(&pattern("a+")));
+        assert!(word_match.contradicts_pattern(&pattern("с1")));
+        assert!(!word_match.contradicts_pattern(&pattern("++")));
     }
 
     fn pattern(value: &'static str) -> Pattern {

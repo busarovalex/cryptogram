@@ -9,3 +9,7 @@ telegram-bot="*"
 tokio-core="*"
 structopt = "0.1.0"
 structopt-derive = "0.1.0"
+
+[profile.dev]
+debug=true
+opt-level=0
