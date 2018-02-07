@@ -16,18 +16,21 @@ use structopt::StructOpt;
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
+use std::collections::{HashSet};
 
 mod index;
 mod pattern;
 mod matches;
 mod app;
 mod vocabulary;
+mod cypher;
 
 use index::{PatternWordIndex};
 use pattern::{Pattern, PatternSystem};
 use matches::{CombinedMatches};
 use app::{App};
 use vocabulary::{Vocabulary};
+use cypher::{Cypher};
 
 const MAX_TOTAL_SATISFACTORY_MATCHES: usize = 200;
 const MAX_TOTAL_WORD_TESTS: usize = 10_000_000;
@@ -46,13 +49,12 @@ fn main() {
     let vocabulary = Vocabulary::new(&words);
 
     if !app.patterns.is_empty() {
-        let (matches, message) = match find_words(&vocabulary, app.patterns) {
-            Ok(result) => result,
-            Err(error_message) => {
-                println!("{}", &error_message);
-                ::std::process::exit(1);
-            }
-        };
+        let matches = Cypher::new(
+            app.patterns,
+            HashSet::new()
+        ).unwrap()
+         .solve_for(&vocabulary)
+         .decode();
 
         if matches.is_empty() {
             println!("no results found!");
@@ -60,10 +62,6 @@ fn main() {
             for combination in matches {
                 println!("{}", combination);
             }
-        }
-
-        if let Some(message) = message {
-            println!("{}", &message);
         }
         
         return;

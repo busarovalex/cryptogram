@@ -1,4 +1,5 @@
 pub struct Vocabulary<'r> {
+    all: &'r [&'r str],
     by_length: Vec<Vec<&'r str>>,
     statistics: Statistics
 }
@@ -22,6 +23,7 @@ impl<'r> Vocabulary<'r> {
         }
         let length_distribution = by_length.iter().map(Vec::len).collect();
         Vocabulary {
+            all: words,
             by_length,
             statistics: Statistics {
                 length_distribution: LengthDistribution(length_distribution)
@@ -31,6 +33,10 @@ impl<'r> Vocabulary<'r> {
 
     pub fn with_length(&'r self, word_len: usize) -> Result<&'r [&'r str], String> {
         self.by_length.get(word_len).map(|v| v.as_slice()).ok_or(format!("No words with length {}", word_len))
+    }
+
+    pub fn all(&'r self) -> &'r [&'r str] {
+        &self.all
     }
 }
 

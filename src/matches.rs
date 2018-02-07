@@ -190,15 +190,15 @@ mod tests {
         assert!(!set.is_disjoint(&set));
     }
 
-    #[test]
-    fn contradicts_with_pattern() {
-        let initial_pattern = pattern("++1");
-        let word_match = initial_pattern.match_word("abс").unwrap();
+    // #[test]
+    // fn contradicts_with_pattern() {
+    //     let initial_pattern = pattern("++1");
+    //     let word_match = initial_pattern.match_word("abс").unwrap();
 
-        assert!(word_match.contradicts_pattern(&pattern("a+")));
-        assert!(word_match.contradicts_pattern(&pattern("с1")));
-        assert!(!word_match.contradicts_pattern(&pattern("++")));
-    }
+    //     assert!(word_match.contradicts_pattern(&pattern("a+")));
+    //     assert!(word_match.contradicts_pattern(&pattern("с1")));
+    //     assert!(!word_match.contradicts_pattern(&pattern("++")));
+    // }
 
     fn pattern(value: &'static str) -> Pattern {
         Pattern::new(value).unwrap()
