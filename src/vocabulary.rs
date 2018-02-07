@@ -1,14 +1,7 @@
 pub struct Vocabulary<'r> {
     all: &'r [&'r str],
-    by_length: Vec<Vec<&'r str>>,
-    statistics: Statistics
+    by_length: Vec<Vec<&'r str>>
 }
-
-pub struct Statistics {
-    pub length_distribution: LengthDistribution
-}
-
-pub struct LengthDistribution(Vec<usize>);
 
 impl<'r> Vocabulary<'r> {
     pub fn new(words: &'r [&'r str]) -> Vocabulary<'r> {
@@ -21,13 +14,9 @@ impl<'r> Vocabulary<'r> {
             }
             by_length[word.len()].push(*word);
         }
-        let length_distribution = by_length.iter().map(Vec::len).collect();
         Vocabulary {
             all: words,
-            by_length,
-            statistics: Statistics {
-                length_distribution: LengthDistribution(length_distribution)
-            }
+            by_length
         }
     }
 
@@ -37,11 +26,5 @@ impl<'r> Vocabulary<'r> {
 
     pub fn all(&'r self) -> &'r [&'r str] {
         &self.all
-    }
-}
-
-impl LengthDistribution {
-    pub fn get(&self, word_length: usize) -> Option<usize> {
-        self.0.get(word_length).cloned()
     }
 }

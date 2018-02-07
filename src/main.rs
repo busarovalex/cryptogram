@@ -59,9 +59,10 @@ fn main() {
         if matches.is_empty() {
             println!("no results found!");
         } else {
-            for combination in matches {
-                println!("{}", combination);
-            }
+            println!("{:?} matches", matches.len());
+            // for combination in matches {
+            //     println!("{}", combination);
+            // }
         }
         
         return;

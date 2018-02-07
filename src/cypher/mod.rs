@@ -16,7 +16,7 @@ pub struct Cypher {
 pub struct SolutionAggregator {
     cypher: Cypher,
     partial_solutions: Vec<PartialSolution>,
-    full_soutions: Vec<Solution>
+    full_soutions: HashSet<Solution>
 }
 
 #[derive(Debug)]
@@ -36,7 +36,7 @@ struct Solution {
     encoding: [char; 26]
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct SolutionBuilder {
     encoding: [char; 26]
 }
@@ -44,7 +44,7 @@ struct SolutionBuilder {
 #[derive(Debug)]
 pub enum Contradiction {
     Encoding(CharEncoding),
-    CypherWordApplied(usize),
+    // CypherWordApplied(usize),
     InvalidChar(char)
 }
 
@@ -62,74 +62,49 @@ impl SolutionAggregator {
         SolutionAggregator {
             cypher,
             partial_solutions: Vec::new(),
-            full_soutions: Vec::new()
+            full_soutions: HashSet::new()
         }
     }
 
-    fn visit(&mut self, word: &str) -> Result<(), Contradiction> {
-        let phrase_len = self.cypher.phrase.len();
-        for (cypher_word_index, cypher_word) in self.cypher.phrase.iter().enumerate() {
-            if word.len() != cypher_word.len() { continue; }
-            let mut solution_builder = match self.cypher.known_solution {
-                Some(solution) => SolutionBuilder::based_on(solution),
-                None => SolutionBuilder::new()
-            };
+    fn solve_for(&mut self, vocabulary: &Vocabulary) {
+        let mut first = true;
+        for cypher_word in &self.cypher.phrase {
+            println!("now searching matches for {}", cypher_word);
+            let new_solutions = self.solve_for_cypher_word(vocabulary, cypher_word, first);
+            println!("possible solutions found: {}", new_solutions.len());
+            self.full_soutions = new_solutions;
+            first = false;
+        }
+    }
+
+    fn solve_for_cypher_word(&self, vocabulary: &Vocabulary, cypher_word: &str, first: bool) -> HashSet<Solution> {
+        let cypher_word_len = cypher_word.len();
+        let mut new_solutions = HashSet::with_capacity(vocabulary.all().len());
+        let initial_solution = self.cypher.known_solution.unwrap_or(Solution::new());
+        'outer: for word in vocabulary.all() {
+            if word.len() != cypher_word_len { continue; }
+            let mut solution_builder = SolutionBuilder::based_on(initial_solution);
 
             for (cypher_char, word_char) in cypher_word.chars().zip(word.chars()) {
-                solution_builder.insert(CharEncoding::new(cypher_char, word_char))?;
-            }
-
-            let solution = solution_builder.build();
-
-            if self.cypher.phrase.len() == 1 {
-                self.full_soutions.push(solution);
-            } else {
-                self.partial_solutions.push(PartialSolution::new(solution, cypher_word_index));
-            }
-
-            let mut new_partial_solutions = Vec::new();
-
-            for partial_solution in &self.partial_solutions {
-                match partial_solution.add(&solution, cypher_word_index) {
-                    Ok(new_partial_solution) => {
-                        if new_partial_solution.satisfied_phrase_parts.len() == phrase_len {
-                            self.full_soutions.push(new_partial_solution.solution);
-                        } else {
-                            new_partial_solutions.push(new_partial_solution);
-                        }
-                    },
-                    Err(_) => {}
+                match solution_builder.insert(CharEncoding::new(cypher_char, word_char)) {
+                    Ok(_) => {},
+                    Err(_) => continue 'outer
                 }
             }
 
-            self.partial_solutions.append(&mut new_partial_solutions);
-        }
-        Ok(())
-    }
-}
+            if first {
+                new_solutions.insert(solution_builder.build());
+                continue 'outer;
+            }
 
-impl PartialSolution {
-    fn new(solution: Solution, cypher_word_index: usize) -> PartialSolution {
-        let mut satisfied_phrase_parts = HashSet::new();
-        satisfied_phrase_parts.insert(cypher_word_index);
-        PartialSolution {
-            solution,
-            satisfied_phrase_parts
+            'inner: for already_existing_solution in &self.full_soutions {
+                match solution_builder.add(*already_existing_solution) {
+                    Ok(combined_solution) => { new_solutions.insert(combined_solution.build()); },
+                    Err(_) => continue 'inner
+                }
+            }
         }
-    }
-
-    fn add(&self, new_solution: &Solution, cypher_word_index: usize) -> Result<PartialSolution, Contradiction> {
-        if self.satisfied_phrase_parts.contains(&cypher_word_index) {
-            return Err(Contradiction::same_cypher_word_already_applied(cypher_word_index));
-        }
-        let solution = SolutionBuilder::based_on(self.solution).add(*new_solution)?.build();
-        let mut satisfied_phrase_parts = self.satisfied_phrase_parts.clone();
-        satisfied_phrase_parts.insert(cypher_word_index);
-
-        Ok(PartialSolution{
-            solution,
-            satisfied_phrase_parts
-        })
+        new_solutions
     }
 }
 
@@ -176,20 +151,47 @@ impl SolutionBuilder {
 impl Index<char> for SolutionBuilder {
     type Output = char;
     fn index(&self, index: char) -> &Self::Output {
-        &self.encoding[char_to_index(index)]
+        #[cfg(feature="unsafe")]
+        {
+            unsafe {
+                self.encoding.get_unchecked(char_to_index(index))    
+            }
+        }
+        #[cfg(not(feature="unsafe"))]
+        {
+            &self.encoding[char_to_index(index)]    
+        }
     }
 }
 
 impl Index<char> for Solution {
     type Output = char;
     fn index(&self, index: char) -> &Self::Output {
-        &self.encoding[char_to_index(index)]
+        #[cfg(feature="unsafe")]
+        {
+            unsafe {
+                self.encoding.get_unchecked(char_to_index(index))    
+            }
+        }
+        #[cfg(not(feature="unsafe"))]
+        {
+            &self.encoding[char_to_index(index)]    
+        }
     }
 }
 
 impl IndexMut<char> for SolutionBuilder {
     fn index_mut(&mut self, index: char) -> &mut Self::Output {
-        &mut self.encoding[char_to_index(index)]
+        #[cfg(feature="unsafe")]
+        {
+            unsafe {
+                self.encoding.get_unchecked_mut(char_to_index(index))    
+            }
+        }
+        #[cfg(not(feature="unsafe"))]
+        {
+            &mut self.encoding[char_to_index(index)]    
+        }
     }
 }
 
@@ -217,11 +219,7 @@ impl Cypher {
 
     pub fn solve_for(self, vocabulary: &Vocabulary) -> SolutionAggregator {
         let mut aggregator = SolutionAggregator::new(self);
-        for word in vocabulary.all() {
-            match aggregator.visit(&word) {
-                _ => {}
-            }
-        }
+        aggregator.solve_for(vocabulary);
         aggregator
     }
 
@@ -234,13 +232,15 @@ impl Cypher {
     }
 }
 
+impl Solution {
+    fn new() -> Solution {
+        SolutionBuilder::new().build()
+    }
+}
+
 impl Contradiction {
     fn encoding(from: char, to: char) -> Contradiction {
         Contradiction::Encoding(CharEncoding::new(from, to))
-    }
-
-    fn same_cypher_word_already_applied(cypher_word_index: usize) -> Contradiction {
-        Contradiction::CypherWordApplied(cypher_word_index)
     }
 }
 
@@ -290,7 +290,7 @@ mod tests {
             &[
                 "like", "xyz", "zyx", "xyb", "zyb"
             ]), 
-            words(vec!["zyx xyz", "xyz zyx"])
+            words(vec!["xyz zyx", "zyx xyz"])
         );
     }
 
