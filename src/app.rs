@@ -5,5 +5,5 @@ pub struct App {
     pub vocabulary: String,
 
     #[structopt(help = "List of patterns")]
-    pub patterns: Vec<String>
+    pub chipher_text: String,
 }
