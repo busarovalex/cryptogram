@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-use vocabulary_index::{Words, VocabularyIndex};
-use cipher_text::{CipherChar, Condition, CipherText, CipherWordId};
-use vocabulary::{Char};
+use vocabulary_index::{VocabularyIndex, Words};
+use cipher_text::{CipherChar, CipherText, CipherWordId, Condition};
+use vocabulary::Char;
 
 const ALPHABET: &'static str = "abcdefghijklmnopqrstuvwxyz";
 
@@ -13,12 +13,12 @@ pub struct Decipher<'r> {
 }
 
 pub struct Solution {
-    solution: Vec<PartialSoultion>
+    solution: Vec<PartialSoultion>,
 }
 
 #[derive(Debug)]
 pub struct PartialSoultion {
-    satisfactory_words: HashMap<CipherWordId, Words>
+    satisfactory_words: HashMap<CipherWordId, Words>,
 }
 
 struct SolutionBuilder {
@@ -48,14 +48,20 @@ impl<'r> Decipher<'r> {
     fn partial_soultion(&self, condition: &Condition, ch: Char) -> Option<PartialSoultion> {
         let mut satisfactory_words: HashMap<CipherWordId, Words> = HashMap::new();
 
-        for CipherChar {position, cipher_word_id, length} in condition.equal_chars().iter().cloned() {
+        for CipherChar {
+            position,
+            cipher_word_id,
+            length,
+        } in condition.equal_chars().iter().cloned()
+        {
             match self.index.get(length, ch, position) {
                 Some(words) => {
-                    satisfactory_words.entry(cipher_word_id)
+                    satisfactory_words
+                        .entry(cipher_word_id)
                         .or_insert_with(|| words.clone())
                         .intersect_with(&words);
-                },
-                None => return None
+                }
+                None => return None,
             }
         }
 
@@ -77,7 +83,7 @@ impl SolutionBuilder {
     fn new() -> SolutionBuilder {
         SolutionBuilder {
             current_condition: Vec::with_capacity(0),
-            next_condition: Vec::with_capacity(1024)
+            next_condition: Vec::with_capacity(1024),
         }
     }
 
@@ -101,7 +107,7 @@ impl SolutionBuilder {
 
     fn build(self) -> Solution {
         Solution {
-            solution: self.next_condition
+            solution: self.next_condition,
         }
     }
 }
@@ -117,34 +123,39 @@ impl PartialSoultion {
         let all_words: HashSet<CipherWordId> = left_words.union(&right_words).cloned().collect();
         let mut intersection = HashMap::new();
         for word in all_words {
-            match (self.satisfactory_words.get(&word), other.satisfactory_words.get(&word)) {
-                (Some(left), None) => { intersection.insert(word, left.clone()); },
-                (None, Some(right)) => { intersection.insert(word, right.clone()); },
+            match (
+                self.satisfactory_words.get(&word),
+                other.satisfactory_words.get(&word),
+            ) {
+                (Some(left), None) => {
+                    intersection.insert(word, left.clone());
+                }
+                (None, Some(right)) => {
+                    intersection.insert(word, right.clone());
+                }
                 (Some(left), Some(right)) => {
                     if let Some(word_intersection) = left.intersection(right) {
                         intersection.insert(word, word_intersection);
                     } else {
-                        return None
+                        return None;
                     }
-                },
-                _ => unreachable!()
+                }
+                _ => unreachable!(),
             }
         }
         if intersection.is_empty() {
             None
         } else {
-            Some(PartialSoultion {satisfactory_words: intersection})
+            Some(PartialSoultion {
+                satisfactory_words: intersection,
+            })
         }
     }
 }
 
 impl fmt::Debug for Solution {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "Solution {{ total_entries: {} }}",
-            self.solution.len()
-        )
+        write!(f, "Solution {{ total_entries: {} }}", self.solution.len())
     }
 }
 

@@ -11,7 +11,7 @@ pub struct Char(pub u8);
 #[derive(Clone, Copy, Hash, Eq, PartialEq)]
 pub struct Position(pub u8);
 
-#[derive(Clone, Copy, Hash, Eq, PartialEq)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct WordId(usize);
 
 impl<'r> Vocabulary<'r> {

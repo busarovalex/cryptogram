@@ -10,7 +10,7 @@ pub struct VocabularyIndex {
 
 #[derive(Debug, Clone)]
 pub struct Words {
-    words: HashSet<WordId>,
+    words: Vec<WordId>,
 }
 
 #[derive(Clone, Copy, Hash, Eq, PartialEq)]
@@ -21,20 +21,45 @@ pub struct Key {
 
 struct Index {
     word_length: u8,
-    map: HashMap<Key, HashSet<WordId>>,
+    map: HashMap<Key, Words>,
 }
 
 impl Words {
+    pub fn new(mut words: Vec<WordId>) -> Words {
+        words.sort_unstable();
+        Words { words }
+    }
+
     pub fn intersect_with(&mut self, other: &Words) {
-        self.words = self.words.intersection(&other.words).cloned().collect();
+        self.words = self.intersection(&other)
+            .map(|w| w.words)
+            .unwrap_or_else(|| Vec::with_capacity(0));
     }
 
     pub fn intersection(&self, other: &Words) -> Option<Words> {
-        let intersection: HashSet<_> = self.words.intersection(&other.words).cloned().collect();
-        if intersection.is_empty() {
+        let mut result = Vec::with_capacity(::std::cmp::min(self.words.len(), other.words.len()));
+        let mut left_iter = self.words.iter();
+        let mut right_iter = other.words.iter();
+
+        let mut next_left = left_iter.next();
+        let mut next_right = right_iter.next();
+
+        while let (Some(left), Some(right)) = (next_left, next_right) {
+            if left > right {
+                next_right = right_iter.next();
+            } else if left < right {
+                next_left = left_iter.next();
+            } else {
+                result.push(*left);
+                next_left = left_iter.next();
+                next_right = right_iter.next();
+            }
+        }
+
+        if result.is_empty() {
             None
         } else {
-            Some(Words{words: intersection})
+            Some(Words { words: result })
         }
     }
 
@@ -46,7 +71,7 @@ impl Words {
         self.words.len()
     }
 
-    pub fn ids(&self) -> &HashSet<WordId> {
+    pub fn ids(&self) -> &[WordId] {
         &self.words
     }
 }
@@ -65,6 +90,13 @@ impl VocabularyIndex {
             }
             indexes.insert(words_len, current_word_len_index);
         }
+
+        for index in indexes.values_mut() {
+            for words in index.map.values_mut() {
+                words.words.sort_unstable();
+            }
+        }
+
         VocabularyIndex { indexes }
     }
 
@@ -97,14 +129,15 @@ impl Index {
         assert!(key.position.0 <= self.word_length - 1);
         self.map
             .entry(key)
-            .or_insert_with(HashSet::new)
-            .insert(word);
+            .or_insert_with(|| Words { words: Vec::new() })
+            .words
+            .push(word);
     }
 
     fn get<T: Into<Key>>(&self, key: T) -> Option<Words> {
         let key: Key = key.into();
         assert!(key.position.0 <= self.word_length - 1);
-        self.map.get(&key).map(|words| Words { words: words.clone() })
+        self.map.get(&key).cloned()
     }
 }
 

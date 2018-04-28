@@ -1,13 +1,13 @@
 use std::fmt;
 
 use vocabulary::Vocabulary;
-use decipher::{Solution};
+use decipher::Solution;
 use cipher_text::{CipherText, CipherWordId};
 
 pub struct Render<'r, 'a> {
     solution: Solution,
     vocabulary: &'r Vocabulary<'r>,
-    cipher: &'a CipherText
+    cipher: &'a CipherText,
 }
 
 struct SolutionsForSingleWord<'r> {
@@ -18,13 +18,15 @@ struct SolutionsForSingleWord<'r> {
 }
 
 impl<'r, 'a> Render<'r, 'a> {
-    pub fn new(solution: Solution,
-    vocabulary: &'r Vocabulary,
-    cipher: &'a CipherText) -> Render<'r, 'a> {
+    pub fn new(
+        solution: Solution,
+        vocabulary: &'r Vocabulary,
+        cipher: &'a CipherText,
+    ) -> Render<'r, 'a> {
         Render {
             solution,
             vocabulary,
-            cipher
+            cipher,
         }
     }
 
@@ -34,9 +36,9 @@ impl<'r, 'a> Render<'r, 'a> {
             let mut solutions = Vec::with_capacity(10);
             for (cipher_word_id, words) in partial_solution.satisfactory_words() {
                 let mut for_word = SolutionsForSingleWord::new(
-                    *cipher_word_id, 
+                    *cipher_word_id,
                     words.len(),
-                    self.cipher.length_of(*cipher_word_id).unwrap()
+                    self.cipher.length_of(*cipher_word_id).unwrap(),
                 );
 
                 for word_id in words.ids() {
@@ -48,18 +50,17 @@ impl<'r, 'a> Render<'r, 'a> {
             }
             solutions.sort_by_key(|s| s.cipher_word_id);
 
-            let max_number_of_words = solutions.iter()
-                .map(|s| s.words.len())
-                .max()
-                .unwrap();
+            let max_number_of_words = solutions.iter().map(|s| s.words.len()).max().unwrap();
 
             for solution_word_index in 0..max_number_of_words {
                 for by_cipher_word in &solutions {
-                    let word = by_cipher_word.words.get(solution_word_index)
+                    let word = by_cipher_word
+                        .words
+                        .get(solution_word_index)
                         .map(|w| *w)
                         .unwrap_or(by_cipher_word.empty.as_str());
                     rendered.push_str(word);
-                rendered.push_str(", ");
+                    rendered.push_str(", ");
                 }
                 rendered.push('\n');
             }
@@ -72,7 +73,11 @@ impl<'r, 'a> Render<'r, 'a> {
 }
 
 impl<'r> SolutionsForSingleWord<'r> {
-    fn new(cipher_word_id: CipherWordId, capacity: usize, length: usize,) -> SolutionsForSingleWord<'r> {
+    fn new(
+        cipher_word_id: CipherWordId,
+        capacity: usize,
+        length: usize,
+    ) -> SolutionsForSingleWord<'r> {
         let mut empty = String::with_capacity(length);
         for _ in 0..length {
             empty.push(' ');
@@ -81,7 +86,7 @@ impl<'r> SolutionsForSingleWord<'r> {
             cipher_word_id,
             length,
             empty,
-            words: Vec::with_capacity(capacity)
+            words: Vec::with_capacity(capacity),
         }
     }
 

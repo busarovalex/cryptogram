@@ -8,7 +8,7 @@ pub struct CipherText {
     text: String,
     word_count: usize,
     conditions: Vec<Condition>,
-    lengths: Vec<usize>
+    lengths: Vec<usize>,
 }
 
 #[derive(Clone, Copy)]
@@ -56,14 +56,21 @@ impl CipherText {
 
         conditions.reverse();
 
-        CipherText { text, conditions, word_count, lengths }
+        CipherText {
+            text,
+            conditions,
+            word_count,
+            lengths,
+        }
     }
 
     pub fn conditions(&self) -> &[Condition] {
         &self.conditions
     }
 
-    pub fn word_count(&self) -> usize { self.word_count }
+    pub fn word_count(&self) -> usize {
+        self.word_count
+    }
 
     pub fn length_of(&self, id: CipherWordId) -> Option<usize> {
         self.lengths.get(id.0 as usize).cloned()
