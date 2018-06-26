@@ -1,4 +1,5 @@
 use std::fmt;
+use std::iter::Iterator;
 
 pub struct Vocabulary<'r> {
     all: &'r [&'r str],
@@ -8,16 +9,48 @@ pub struct Vocabulary<'r> {
 #[derive(Clone, Copy, Hash, Eq, PartialEq)]
 pub struct Char(pub u8);
 
+#[derive(Debug)]
+pub struct AlphabetIter {
+    current: u8
+}
+
 #[derive(Clone, Copy, Hash, Eq, PartialEq)]
 pub struct Position(pub u8);
 
 #[derive(Clone, Copy, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct WordId(usize);
 
+impl AlphabetIter {
+    pub fn new() -> AlphabetIter {
+        AlphabetIter {
+            current: 'a' as u8
+        }
+    }
+}
+
+impl Iterator for AlphabetIter {
+    type Item = Char;
+
+    fn next(&mut self) -> Option<Char> {
+        if self.current > 'z' as u8 {
+            None
+        } else {
+            let ret = Char(self.current);
+            self.current += 1;
+            Some(ret)
+        }
+    }
+}
+
 impl<'r> Vocabulary<'r> {
     pub fn new(words: &'r [&'r str]) -> Vocabulary<'r> {
         let mut by_length = Vec::new();
-        for (word_index, word) in words.iter().enumerate() {
+        'words: for (word_index, word) in words.iter().enumerate() {
+            for ch in word.chars() {
+                if ch < 'a' || ch > 'z' {
+                    continue 'words;
+                }
+            }
             if by_length.len() < word.len() + 1 {
                 for _ in 0..word.len() - by_length.len() + 1 {
                     by_length.push(Vec::new());
@@ -43,6 +76,12 @@ impl<'r> Vocabulary<'r> {
 impl fmt::Debug for WordId {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "{}", self.0)
+    }
+}
+
+impl fmt::Debug for Char {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.0 as char)
     }
 }
 

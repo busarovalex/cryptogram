@@ -68,10 +68,6 @@ impl CipherText {
         &self.conditions
     }
 
-    pub fn word_count(&self) -> usize {
-        self.word_count
-    }
-
     pub fn length_of(&self, id: CipherWordId) -> Option<usize> {
         self.lengths.get(id.0 as usize).cloned()
     }

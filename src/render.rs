@@ -12,7 +12,6 @@ pub struct Render<'r, 'a> {
 
 struct SolutionsForSingleWord<'r> {
     cipher_word_id: CipherWordId,
-    length: usize,
     empty: String,
     words: Vec<&'r str>,
 }
@@ -32,7 +31,7 @@ impl<'r, 'a> Render<'r, 'a> {
 
     fn render(&self) -> String {
         let mut rendered = String::with_capacity(4 * 1024);
-        for partial_solution in self.solution.partial_soultions() {
+        for partial_solution in self.solution.partial_solutions() {
             let mut solutions = Vec::with_capacity(10);
             for (cipher_word_id, words) in partial_solution.satisfactory_words() {
                 let mut for_word = SolutionsForSingleWord::new(
@@ -84,7 +83,6 @@ impl<'r> SolutionsForSingleWord<'r> {
         }
         SolutionsForSingleWord {
             cipher_word_id,
-            length,
             empty,
             words: Vec::with_capacity(capacity),
         }

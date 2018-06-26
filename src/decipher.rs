@@ -1,11 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::iter::Iterator;
 
 use vocabulary_index::{VocabularyIndex, Words};
 use cipher_text::{CipherChar, CipherText, CipherWordId, Condition};
-use vocabulary::Char;
-
-const ALPHABET: &'static str = "abcdefghijklmnopqrstuvwxyz";
+use vocabulary::{AlphabetIter, Char};
 
 pub struct Decipher<'r> {
     index: VocabularyIndex,
@@ -13,17 +12,20 @@ pub struct Decipher<'r> {
 }
 
 pub struct Solution {
-    solution: Vec<PartialSoultion>,
+    solution: Vec<PartialSolution>,
 }
 
 #[derive(Debug)]
-pub struct PartialSoultion {
+pub struct PartialSolution {
     satisfactory_words: HashMap<CipherWordId, Words>,
 }
 
-struct SolutionBuilder {
-    current_condition: Vec<PartialSoultion>,
-    next_condition: Vec<PartialSoultion>,
+struct BacktrackingSearch<'r> {
+    rules: &'r [Condition],
+    solutions: Vec<(AlphabetIter, PartialSolution)>,
+    current: AlphabetIter,
+    full_solutions: Vec<PartialSolution>,
+    index: &'r VocabularyIndex
 }
 
 impl<'r> Decipher<'r> {
@@ -32,20 +34,59 @@ impl<'r> Decipher<'r> {
     }
 
     pub fn find_solution(&self) -> Solution {
-        let mut solutions = SolutionBuilder::new();
-        for condition in self.cipher_text.conditions() {
-            solutions.next_condition();
-            for ch in ALPHABET.chars().map(|ch| Char(ch as u8)) {
-                if let Some(partial_soultion) = self.partial_soultion(condition, ch) {
-                    solutions.add(partial_soultion);
+        let mut search = BacktrackingSearch {
+            rules:   self.cipher_text.conditions(),
+            solutions: Vec::new(),
+            current: AlphabetIter::new(),
+            full_solutions: Vec::new(),
+            index: &self.index
+        };
+
+        loop {
+            if let Some(next_char) = search.current.next() {
+                if search.solutions.len() == 0 {
+                    debug!("{}% complete", ((next_char.0 - 'a' as u8) as f32 / 26.) * 100.);
                 }
+                if let Some(solution) = search.partial_solution_intersected_with_top_solution(next_char) {
+                    if search.solutions.len() == search.rules.len() - 1 {
+                        search.full_solutions.push(solution);
+                        debug!("found solution №{}", search.full_solutions.len()-1);
+                        if search.full_solutions.len() > 10_000 {
+                            println!("Too many solutions!");
+                            ::std::process::exit(1);
+                        }
+                    } else {
+                        let current_char_iter = ::std::mem::replace(&mut search.current, AlphabetIter::new());
+                        search.solutions.push((current_char_iter, solution));
+                    }
+                }
+            } else if search.solutions.is_empty() {
+                break;
+            } else if let Some((last_char_iter, _)) = search.solutions.pop() {
+                search.current = last_char_iter;
             }
-            debug!("{:?}", &solutions);
         }
-        solutions.build()
+
+        Solution {
+            solution: search.full_solutions
+        }
+    }
+}
+
+impl<'r> BacktrackingSearch<'r> {
+    fn partial_solution_intersected_with_top_solution(&self, ch: Char) -> Option<PartialSolution> {
+        let found = self.partial_solution(self.current_rule(), ch)?;
+        if let Some(&(_, ref last)) = self.solutions.last() {
+            return last.intersect(&found);
+        }
+        Some(found)
     }
 
-    fn partial_soultion(&self, condition: &Condition, ch: Char) -> Option<PartialSoultion> {
+    fn current_rule(&self) -> &Condition {
+        &self.rules[self.solutions.len()]
+    }
+
+    fn partial_solution(&self, condition: &Condition, ch: Char) -> Option<PartialSolution> {
         let mut satisfactory_words: HashMap<CipherWordId, Words> = HashMap::new();
 
         for CipherChar {
@@ -53,71 +94,38 @@ impl<'r> Decipher<'r> {
             cipher_word_id,
             length,
         } in condition.equal_chars().iter().cloned()
-        {
-            match self.index.get(length, ch, position) {
-                Some(words) => {
-                    satisfactory_words
-                        .entry(cipher_word_id)
-                        .or_insert_with(|| words.clone())
-                        .intersect_with(&words);
+            {
+                match self.index.get(length, ch, position) {
+                    Some(words) => {
+                        satisfactory_words
+                            .entry(cipher_word_id)
+                            .or_insert_with(|| words.clone())
+                            .intersect_with(&words);
+                    }
+                    None => return None,
                 }
-                None => return None,
             }
-        }
 
         if satisfactory_words.is_empty() || satisfactory_words.values().any(Words::is_empty) {
             None
         } else {
-            Some(PartialSoultion { satisfactory_words })
+            Some(PartialSolution { satisfactory_words })
         }
     }
 }
 
 impl Solution {
-    pub fn partial_soultions(&self) -> &[PartialSoultion] {
+    pub fn partial_solutions(&self) -> &[PartialSolution] {
         &self.solution
     }
 }
 
-impl SolutionBuilder {
-    fn new() -> SolutionBuilder {
-        SolutionBuilder {
-            current_condition: Vec::with_capacity(0),
-            next_condition: Vec::with_capacity(1024),
-        }
-    }
-
-    fn next_condition(&mut self) {
-        assert!(self.current_condition.len() == 0 || self.next_condition.len() > 0);
-        let next = ::std::mem::replace(&mut self.next_condition, Vec::with_capacity(1024));
-        self.current_condition = next;
-    }
-
-    fn add(&mut self, partial_soultion: PartialSoultion) {
-        if self.current_condition.is_empty() {
-            self.next_condition.push(partial_soultion);
-            return;
-        }
-        for current in &self.current_condition {
-            if let Some(intersection) = current.intersect(&partial_soultion) {
-                self.next_condition.push(intersection);
-            }
-        }
-    }
-
-    fn build(self) -> Solution {
-        Solution {
-            solution: self.next_condition,
-        }
-    }
-}
-
-impl PartialSoultion {
+impl PartialSolution {
     pub fn satisfactory_words(&self) -> &HashMap<CipherWordId, Words> {
         &self.satisfactory_words
     }
 
-    fn intersect(&self, other: &PartialSoultion) -> Option<PartialSoultion> {
+    fn intersect(&self, other: &PartialSolution) -> Option<PartialSolution> {
         let left_words: HashSet<CipherWordId> = self.satisfactory_words.keys().cloned().collect();
         let right_words: HashSet<CipherWordId> = other.satisfactory_words.keys().cloned().collect();
         let all_words: HashSet<CipherWordId> = left_words.union(&right_words).cloned().collect();
@@ -146,7 +154,7 @@ impl PartialSoultion {
         if intersection.is_empty() {
             None
         } else {
-            Some(PartialSoultion {
+            Some(PartialSolution {
                 satisfactory_words: intersection,
             })
         }
@@ -156,16 +164,5 @@ impl PartialSoultion {
 impl fmt::Debug for Solution {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "Solution {{ total_entries: {} }}", self.solution.len())
-    }
-}
-
-impl fmt::Debug for SolutionBuilder {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "SolutionBuilder {{ current_condition: {}, next_condition: {} }}",
-            self.current_condition.len(),
-            self.next_condition.len(),
-        )
     }
 }

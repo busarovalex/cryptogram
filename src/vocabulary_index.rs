@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap};
 use std::fmt;
 
 use vocabulary::{Char, Position, Vocabulary, WordId};
@@ -25,11 +25,6 @@ struct Index {
 }
 
 impl Words {
-    pub fn new(mut words: Vec<WordId>) -> Words {
-        words.sort_unstable();
-        Words { words }
-    }
-
     pub fn intersect_with(&mut self, other: &Words) {
         self.words = self.intersection(&other)
             .map(|w| w.words)
