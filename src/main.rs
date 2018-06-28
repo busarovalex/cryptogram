@@ -11,7 +11,7 @@ extern crate structopt_derive;
 use structopt::StructOpt;
 
 use std::fs::File;
-use std::io::prelude::*;
+use std::io::{self, Read};
 
 mod app;
 mod vocabulary;
@@ -49,12 +49,34 @@ fn main() {
     let index = VocabularyIndex::new(&vocabulary);
     debug!("{:#?}", index);
 
-    let cipher_text = CipherText::new(app.chipher_text);
+    let mut cipher_text = CipherText::new(app.chipher_text);
     debug!("{:#?}", &cipher_text);
+
+    println!("Current conditions: {}", &cipher_text);
+    println!("Reorder?");
+    if let Some(reorder) = reorder() {
+        cipher_text.reorder_conditions(&reorder);
+        println!("Reordered: {}", &cipher_text);
+    }
 
     let solution = Decipher::new(index, &cipher_text).find_solution();
     debug!("{:?}", solution);
 
     let render = Render::new(solution, &vocabulary, &cipher_text);
     println!("{}", render);
+}
+
+fn reorder() -> Option<Vec<usize>> {
+    let mut pattern = String::new();
+    io::stdin().read_line(&mut pattern).unwrap();
+    if pattern.is_empty() || &pattern == "\n" {
+        return None;
+    }
+
+    let indexes: Vec<usize> = pattern
+        .split_whitespace()
+        .map(|index| index.parse().unwrap())
+        .collect();
+
+    Some(indexes)
 }

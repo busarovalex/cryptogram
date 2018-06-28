@@ -21,6 +21,7 @@ pub struct CipherChar {
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub struct CipherWordId(u8);
 
+#[derive(Clone)]
 pub struct Condition {
     equal_chars: Vec<CipherChar>,
 }
@@ -64,6 +65,17 @@ impl CipherText {
         }
     }
 
+    pub fn reorder_conditions(&mut self, reorder: &[usize]) {
+        assert_eq!(reorder.len(), self.conditions.len());
+        let conditions_len = self.conditions.len();
+        let reordered_conditions = reorder.iter()
+            .map(|index| *index)
+            .inspect(|index| assert!(*index <= conditions_len))
+            .map(|index| self.conditions[index - 1].clone())
+            .collect();
+        ::std::mem::replace(&mut self.conditions, reordered_conditions);
+    }
+
     pub fn conditions(&self) -> &[Condition] {
         &self.conditions
     }
@@ -92,6 +104,29 @@ impl Condition {
 }
 
 impl fmt::Debug for Condition {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        for (index, ch) in self.equal_chars.iter().enumerate() {
+            if index < self.equal_chars.len() - 1 {
+                write!(f, "{}[{:?}] == ", ch.cipher_word_id.0, ch.position)?;
+            } else {
+                write!(f, "{}[{:?}]", ch.cipher_word_id.0, ch.position)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for CipherText {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "initial text: \"{}\"\n", &self.text)?;
+        for (index, condition) in self.conditions.iter().enumerate() {
+            write!(f, "    {}) {}\n", index + 1, &condition)?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for Condition {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         for (index, ch) in self.equal_chars.iter().enumerate() {
             if index < self.equal_chars.len() - 1 {

@@ -50,7 +50,10 @@ impl<'r> Decipher<'r> {
                 if let Some(solution) = search.partial_solution_intersected_with_top_solution(next_char) {
                     if search.solutions.len() == search.rules.len() - 1 {
                         search.full_solutions.push(solution);
-                        debug!("found solution №{}", search.full_solutions.len()-1);
+                        let solution_count = search.full_solutions.len();
+                        if solution_count % 10 == 0 {
+                            debug!("found solution №{}", search.full_solutions.len());
+                        }
                         if search.full_solutions.len() > 10_000 {
                             println!("Too many solutions!");
                             ::std::process::exit(1);
